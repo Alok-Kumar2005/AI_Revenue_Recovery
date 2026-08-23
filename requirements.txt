@@ -1,0 +1,27 @@
+# ── Web Framework ──────────────────────────────────────────────────────────
+fastapi
+uvicorn[standard]
+pydantic
+pydantic-settings
+
+# ── Database ────────────────────────────────────────────────────────────────
+sqlalchemy
+psycopg2-binary
+asyncpg
+alembic
+
+# ── AI / LLM ────────────────────────────────────────────────────────────────
+langchain
+langchain-openai
+langchain-google-genai
+langgraph
+
+# ── Task Queue ───────────────────────────────────────────────────────────────
+celery
+
+# ── Payments ─────────────────────────────────────────────────────────────────
+razorpay
+
+# ── Utilities ────────────────────────────────────────────────────────────────
+python-dotenv
+httpx
