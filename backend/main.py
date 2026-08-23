@@ -4,9 +4,13 @@ backend/main.py
 FastAPI application entry point for AI Revenue Recovery.
 
 Routes:
-  GET  /          → health check
-  GET  /health    → detailed health check (DB ping)
-  POST /webhook/razorpay  → Razorpay event ingestion
+  GET  /                      → health check
+  GET  /health                → detailed health check (DB ping)
+  POST /webhook/razorpay      → Razorpay event ingestion
+  GET  /api/metrics/summary   → live KPI aggregates
+  GET  /api/cases             → paginated case list
+  GET  /api/cases/{case_id}   → case detail + audit trail
+  GET  /api/interventions     → recent interventions
 """
 
 from fastapi import FastAPI
@@ -15,7 +19,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from backend.config import settings
 from backend.database import ping_db
 from backend.logger import logging
-from backend.routers import webhook
+from backend.routers import dashboard, webhook
 
 logger = logging.getLogger(__name__)
 
@@ -67,10 +71,5 @@ async def health():
 
 
 # ── Routers ────────────────────────────────────────────────────────────────────
-app.include_router(webhook.router, prefix="/webhook", tags=["webhook"])
-
-# Future routers (uncomment as each is built):
-# from backend.routers import cases, metrics, interventions
-# app.include_router(cases.router,         prefix="/api", tags=["cases"])
-# app.include_router(metrics.router,       prefix="/api", tags=["metrics"])
-# app.include_router(interventions.router, prefix="/api", tags=["interventions"])
+app.include_router(webhook.router,   prefix="/webhook", tags=["webhook"])
+app.include_router(dashboard.router, prefix="/api",     tags=["dashboard"])

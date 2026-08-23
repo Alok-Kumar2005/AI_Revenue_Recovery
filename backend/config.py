@@ -48,17 +48,23 @@ class Settings(BaseSettings):
         """
         Returns an asyncpg-compatible URL (postgresql+asyncpg://).
         Used by the async SQLAlchemy engine.
+
+        asyncpg does NOT accept 'sslmode' or 'channel_binding' in the query
+        string — it uses a separate ssl= kwarg in connect_args instead.
+        We strip both parameters here to avoid a TypeError at connection time.
         """
         url = self.POSTGRESS_URL
         for prefix in ("postgresql+psycopg2://", "postgresql://", "postgres://"):
             if url.startswith(prefix):
                 url = "postgresql+asyncpg://" + url[len(prefix):]
                 break
-        # asyncpg does not support channel_binding — strip it if present
-        if "channel_binding=require" in url:
-            url = url.replace("&channel_binding=require", "").replace(
-                "?channel_binding=require", ""
-            )
+
+        # Strip params that asyncpg does not accept
+        for param in ("channel_binding=require", "sslmode=require", "sslmode=prefer"):
+            url = url.replace(f"&{param}", "").replace(f"?{param}", "")
+
+        # If stripping left a trailing '?', remove it
+        url = url.rstrip("?").rstrip("&")
         return url
 
 
