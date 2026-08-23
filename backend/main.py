@@ -1,9 +1,21 @@
+"""
+backend/main.py
+───────────────
+FastAPI application entry point for AI Revenue Recovery.
+
+Routes:
+  GET  /          → health check
+  GET  /health    → detailed health check (DB ping)
+  POST /webhook/razorpay  → Razorpay event ingestion
+"""
+
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from backend.config import settings
 from backend.database import ping_db
 from backend.logger import logging
+from backend.routers import webhook
 
 logger = logging.getLogger(__name__)
 
@@ -18,19 +30,17 @@ app = FastAPI(
     redoc_url="/redoc",
 )
 
-#  CORS (update origins for production)
-
+# ── CORS (allow all origins for development) ───────────────────────────────────
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:3000", "http://localhost:5173"],
+    allow_origins=["*"],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
 
-#  Lifespan events
-
+# ── Lifespan events ────────────────────────────────────────────────────────────
 @app.on_event("startup")
 async def on_startup() -> None:
     """Verify DB connectivity on startup."""
@@ -41,11 +51,10 @@ async def on_startup() -> None:
         logger.error("Neon PostgreSQL connection: FAILED — check .env credentials")
 
 
-#  Root health check
-
+# ── Health endpoints ───────────────────────────────────────────────────────────
 @app.get("/", tags=["health"])
 async def root():
-    return {"status": "ok", "service": "AI Revenue Recovery API", "version": "0.1.0"}
+    return {"status": "active", "service": "AI Revenue Recovery API"}
 
 
 @app.get("/health", tags=["health"])
@@ -57,9 +66,11 @@ async def health():
     }
 
 
-# ── Routers (Phase 2 — uncomment as each router is built) ────────────────────
-# from backend.routers import webhook, cases, metrics, interventions
-# app.include_router(webhook.router,        prefix="/webhook",  tags=["webhook"])
-# app.include_router(cases.router,          prefix="/api",      tags=["cases"])
-# app.include_router(metrics.router,        prefix="/api",      tags=["metrics"])
-# app.include_router(interventions.router,  prefix="/api",      tags=["interventions"])
+# ── Routers ────────────────────────────────────────────────────────────────────
+app.include_router(webhook.router, prefix="/webhook", tags=["webhook"])
+
+# Future routers (uncomment as each is built):
+# from backend.routers import cases, metrics, interventions
+# app.include_router(cases.router,         prefix="/api", tags=["cases"])
+# app.include_router(metrics.router,       prefix="/api", tags=["metrics"])
+# app.include_router(interventions.router, prefix="/api", tags=["interventions"])

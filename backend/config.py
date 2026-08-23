@@ -22,7 +22,11 @@ class Settings(BaseSettings):
     RZP_SECRET: str
     RZP_WEBHOOK_SECRET: str
 
-    GEMINI_API_KEY: str = ""  
+    GEMINI_API_KEY: str = ""
+
+    # Optional Redis URL for Celery broker.
+    # Leave empty to run Celery in task_always_eager mode (no Redis required).
+    REDIS_URL: str = ""
 
     @property
     def DATABASE_URL(self) -> str:
