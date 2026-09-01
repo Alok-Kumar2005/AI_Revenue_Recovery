@@ -16,11 +16,11 @@ class Settings(BaseSettings):
         extra="ignore",
     )
 
-    POSTGRESS_URL: str
+    POSTGRESS_URL: str = "postgresql://postgres:postgres@localhost:5432/revenue_recovery"
 
-    RZP_KEY: str
-    RZP_SECRET: str
-    RZP_WEBHOOK_SECRET: str
+    RZP_KEY: str = "rzp_test_mock"
+    RZP_SECRET: str = "rzp_test_secret_mock"
+    RZP_WEBHOOK_SECRET: str = "rzp_webhook_secret_mock"
 
     GEMINI_API_KEY: str = ""
 
@@ -28,20 +28,42 @@ class Settings(BaseSettings):
     # Leave empty to run Celery in task_always_eager mode (no Redis required).
     REDIS_URL: str = ""
 
-    # ── Messaging dispatchers ─────────────────────────────────────────────────
-    # SendGrid (Email)
-    SENDGRID_API_KEY: str = ""
-    FROM_EMAIL: str = "recovery@yourdomain.com"
+    # Base URL for public API endpoints and generated document links
+    BASE_URL: str = "http://localhost:8000"
 
-    # Twilio (SMS + WhatsApp)
+    # Allowed CORS origins
+    CORS_ORIGINS: list[str] = [
+        "http://localhost:3000",
+        "http://localhost:5173",
+        "http://127.0.0.1:3000",
+        "http://127.0.0.1:5173",
+    ]
+
+    # ── Messaging dispatchers ─────────────────────────────────────────────────
+    # Gmail SMTP (Email)
+    SMTP_HOST: str = "smtp.gmail.com"
+    SMTP_PORT: int = 587
+    SMTP_USER: str = ""
+    SMTP_PASSWORD: str = ""
+    FROM_EMAIL: str = ""
+
+    # CallMeBot (WhatsApp)
+    CALLMEBOT_PHONE: str = ""
+    CALLMEBOT_API_KEY: str = ""
+
+    # Telegram Bot (Mobile Alerts / SMS)
+    TELEGRAM_BOT_TOKEN: str = ""
+    TELEGRAM_CHAT_ID: str = ""
+
+    # Legacy SendGrid / Twilio configs for backwards compatibility
+    SENDGRID_API_KEY: str = ""
     TWILIO_ACCOUNT_SID: str = ""
     TWILIO_AUTH_TOKEN: str = ""
-    TWILIO_PHONE_NUMBER: str = ""           # E.164, e.g. "+14155000000"
-    TWILIO_WHATSAPP_NUMBER: str = ""        # e.g. "whatsapp:+14155238886"
+    TWILIO_PHONE_NUMBER: str = ""
+    TWILIO_WHATSAPP_NUMBER: str = ""
 
-    # When True (the default) all dispatchers log mock output instead of
-    # making real API calls.  Set to False in production after adding creds.
-    MOCK_DISPATCH: bool = True
+    # When True all dispatchers log mock output instead of making real API calls.
+    MOCK_DISPATCH: bool = False
 
     @property
     def DATABASE_URL(self) -> str:

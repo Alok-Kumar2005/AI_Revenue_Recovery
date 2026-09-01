@@ -266,6 +266,12 @@ def _build_payment_table(styles: dict, case: "RevenueCase") -> Table:
     total    = case.amount + late_fee
     ref_id   = str(case.id)[:8].upper()
 
+    try:
+        from backend.config import settings
+        portal_url = f"{settings.BASE_URL.rstrip('/')}/api/cases/{case.id}/pdf"
+    except Exception:
+        portal_url = f"http://localhost:8000/api/cases/{case.id}/pdf"
+
     items = [
         ("Bank Name",        "AI Recovery Bank Ltd."),
         ("Account Number",   "XXXX-XXXX-4521"),
@@ -273,7 +279,7 @@ def _build_payment_table(styles: dict, case: "RevenueCase") -> Table:
         ("UPI ID",           f"recovery+{ref_id}@airecovery.in"),
         ("Reference / Note", f"CASE-{ref_id}"),
         ("Amount Due",       _fmt(total, case.currency)),
-        ("Online Portal",    f"http://localhost:8000/api/cases/{case.id}/pdf"),
+        ("Online Portal",    portal_url),
     ]
     data = [[Paragraph(k, styles["label"]), Paragraph(v, styles["value"])] for k, v in items]
     tbl = Table(data, colWidths=["30%", "70%"])

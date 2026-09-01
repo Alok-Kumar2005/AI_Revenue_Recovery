@@ -1,8 +1,10 @@
 """
 backend/execution/nudges.py
 ────────────────────────────
-Live & Mock messaging dispatchers for Email (SendGrid), SMS (Twilio),
-and WhatsApp (Twilio).
+Free Live & Mock messaging dispatchers:
+- Email: Gmail SMTP with TLS and PDF attachments
+- WhatsApp: CallMeBot API
+- SMS / Push Alerts: Telegram Bot API
 
 Handles dispatching messages and appending dispatch metadata / message IDs
 to the case audit logs (AuditLog).
@@ -10,9 +12,15 @@ to the case audit logs (AuditLog).
 
 import base64
 import logging
+import smtplib
+import urllib.parse
 import uuid
 from datetime import datetime, timezone
+from email.mime.application import MIMEApplication
+from email.mime.multipart import MIMEMultipart
+from email.mime.text import MIMEText
 from typing import Any, Dict, Optional
+import httpx
 from sqlalchemy.orm import Session
 
 from backend.config import settings
@@ -29,26 +37,15 @@ def send_email_nudge(
     pdf_bytes: Optional[bytes] = None,
 ) -> Dict[str, Any]:
     """
-    Send an email nudge via Resend API (using SENDGRID_API_KEY config) or fallback to mock log.
-    When pdf_bytes is provided the PDF is attached as Demand_Letter.pdf.
+    Send an email nudge via Gmail SMTP (with optional PDF attachment) or fallback to mock log.
+    Uses TLS connection on port 587 with SMTP_USER and SMTP_PASSWORD.
     """
-    # Build attachment list for live dispatch
-    attachments: list = []
-    if pdf_bytes:
-        encoded = base64.b64encode(pdf_bytes).decode("utf-8")
-        filename = f"Demand_Letter_{case_id[:8].upper()}.pdf" if case_id else "Demand_Letter.pdf"
-        attachments = [
-            {
-                "content": encoded,
-                "filename": filename,
-                "type": "application/pdf",
-                "disposition": "attachment",
-            }
-        ]
+    filename = f"Demand_Letter_{case_id[:8].upper()}.pdf" if case_id else "Demand_Letter.pdf"
+    has_pdf = bool(pdf_bytes)
 
-    if settings.MOCK_DISPATCH or not settings.SENDGRID_API_KEY:
+    if settings.MOCK_DISPATCH or not settings.SMTP_USER or not settings.SMTP_PASSWORD:
         mock_id = f"mock-email-{uuid.uuid4().hex[:8]}"
-        attachment_note = f" [PDF attached: {attachments[0]['filename']}]" if attachments else ""
+        attachment_note = f" [PDF attached: {filename}]" if has_pdf else ""
         logger.info(
             "[MOCK EMAIL SENT] To: %s | Subject: %s | ID: %s | Body: %s%s",
             to_email,
@@ -63,93 +60,59 @@ def send_email_nudge(
             "message_id": mock_id,
             "recipient": to_email,
             "subject": subject,
-            "pdf_attached": bool(attachments),
-            "details": "MOCK_DISPATCH enabled or SENDGRID_API_KEY missing",
+            "pdf_attached": has_pdf,
+            "details": "MOCK_DISPATCH enabled or SMTP credentials missing",
         }
 
     try:
-        # Use resend SDK if installed, or fallback to httpx call to Resend API
-        try:
-            import resend
+        # Create multipart message container
+        msg = MIMEMultipart("mixed")
+        msg["From"] = settings.SMTP_USER
+        msg["To"] = to_email
+        msg["Subject"] = subject
+        msg["Message-ID"] = f"<smtp-{uuid.uuid4().hex[:12]}@{settings.SMTP_HOST}>"
 
-            resend.api_key = settings.SENDGRID_API_KEY
-            params: Dict[str, Any] = {
-                "from": settings.FROM_EMAIL,
-                "to": [to_email],
-                "subject": subject,
-                "html": body_html,
-            }
-            if attachments:
-                params["attachments"] = attachments
-            email_resp = resend.Emails.send(params)
-            if isinstance(email_resp, dict):
-                message_id = email_resp.get("id", f"resend-{uuid.uuid4().hex[:8]}")
-            else:
-                message_id = getattr(email_resp, "id", f"resend-{uuid.uuid4().hex[:8]}")
+        # HTML body
+        msg_body = MIMEMultipart("alternative")
+        html_part = MIMEText(body_html, "html", "utf-8")
+        msg_body.attach(html_part)
+        msg.attach(msg_body)
 
-            logger.info(
-                "[EMAIL DISPATCHED VIA RESEND] To: %s | ID: %s | PDF: %s",
-                to_email, message_id, bool(attachments),
+        # Attach PDF if available
+        if pdf_bytes:
+            pdf_attachment = MIMEApplication(pdf_bytes, _subtype="pdf")
+            pdf_attachment.add_header(
+                "Content-Disposition",
+                "attachment",
+                filename=filename,
             )
-            return {
-                "status": "sent",
-                "channel": "EMAIL",
-                "message_id": message_id,
-                "recipient": to_email,
-                "pdf_attached": bool(attachments),
-                "provider_response": (
-                    email_resp if isinstance(email_resp, dict) else str(email_resp)
-                ),
-            }
-        except ImportError:
-            import httpx
+            msg.attach(pdf_attachment)
 
-            headers = {
-                "Authorization": f"Bearer {settings.SENDGRID_API_KEY}",
-                "Content-Type": "application/json",
-            }
-            json_payload: Dict[str, Any] = {
-                "from": settings.FROM_EMAIL,
-                "to": [to_email],
-                "subject": subject,
-                "html": body_html,
-            }
-            if attachments:
-                json_payload["attachments"] = attachments
-            response = httpx.post(
-                "https://api.resend.com/emails",
-                headers=headers,
-                json=json_payload,
-                timeout=10.0,
-            )
-            res_data = response.json()
-            if response.status_code in (200, 201, 202):
-                message_id = res_data.get("id", f"resend-{uuid.uuid4().hex[:8]}")
-                logger.info(
-                    "[EMAIL DISPATCHED VIA RESEND HTTP] To: %s | ID: %s",
-                    to_email,
-                    message_id,
-                )
-                return {
-                    "status": "sent",
-                    "channel": "EMAIL",
-                    "message_id": message_id,
-                    "recipient": to_email,
-                    "pdf_attached": bool(attachments),
-                    "provider_response": res_data,
-                }
-            else:
-                logger.error(
-                    "[RESEND HTTP ERROR] Status: %s | Payload: %s",
-                    response.status_code,
-                    res_data,
-                )
-                return {
-                    "status": "failed",
-                    "channel": "EMAIL",
-                    "error": str(res_data),
-                    "recipient": to_email,
-                }
+        # Connect to SMTP server via TLS
+        smtp_port = int(settings.SMTP_PORT) if settings.SMTP_PORT else 587
+        with smtplib.SMTP(settings.SMTP_HOST, smtp_port, timeout=15.0) as server:
+            server.ehlo()
+            server.starttls()
+            server.ehlo()
+            server.login(settings.SMTP_USER, settings.SMTP_PASSWORD)
+            server.send_message(msg)
+
+        message_id = msg["Message-ID"]
+        logger.info(
+            "[EMAIL DISPATCHED VIA GMAIL SMTP] To: %s | ID: %s | PDF Attached: %s",
+            to_email,
+            message_id,
+            has_pdf,
+        )
+        return {
+            "status": "sent",
+            "channel": "EMAIL",
+            "message_id": message_id,
+            "recipient": to_email,
+            "subject": subject,
+            "pdf_attached": has_pdf,
+            "details": f"Sent via {settings.SMTP_HOST}:{smtp_port}",
+        }
     except Exception as exc:
         logger.error("[EMAIL DISPATCH FAILED] To: %s | Error: %s", to_email, exc)
         return {
@@ -166,56 +129,75 @@ def send_sms_nudge(
     case_id: Optional[str] = None,
 ) -> Dict[str, Any]:
     """
-    Send an SMS nudge via Twilio API or fallback to mock log.
-    When case_id is provided a secure PDF download link is appended to the message.
+    Send an SMS / Mobile Alert nudge via Telegram Bot API or fallback to mock log.
+    When case_id is provided, a secure PDF download link is appended.
     """
-    # Append PDF link to message
+    # Append PDF link to message if case_id is set
+    formatted_message = message
     if case_id:
-        pdf_link = f"http://localhost:8000/api/cases/{case_id}/pdf"
-        message = f"{message}\n\nDownload your demand letter: {pdf_link}"
+        base_url = settings.BASE_URL.rstrip("/")
+        pdf_link = f"{base_url}/api/cases/{case_id}/pdf"
+        formatted_message = f"{message}\n\n📄 Download demand letter: {pdf_link}"
+
+    # Prepend recipient notice for Telegram alert clarity
+    telegram_text = f"📱 [SMS ALERT FOR {to_phone}]\n\n{formatted_message}"
 
     if (
         settings.MOCK_DISPATCH
-        or not settings.TWILIO_ACCOUNT_SID
-        or not settings.TWILIO_AUTH_TOKEN
+        or not settings.TELEGRAM_BOT_TOKEN
+        or not settings.TELEGRAM_CHAT_ID
     ):
-        mock_id = f"mock-sms-{uuid.uuid4().hex[:8]}"
+        mock_id = f"mock-telegram-sms-{uuid.uuid4().hex[:8]}"
         logger.info(
-            "[MOCK SMS SENT] To: %s | ID: %s | Message: %s",
+            "[MOCK SMS / TELEGRAM SENT] To: %s | ID: %s | Message: %s",
             to_phone,
             mock_id,
-            message[:160],
+            formatted_message[:160],
         )
         return {
             "status": "mocked",
             "channel": "SMS",
             "message_id": mock_id,
             "recipient": to_phone,
-            "details": "MOCK_DISPATCH enabled or TWILIO credentials missing",
+            "details": "MOCK_DISPATCH enabled or Telegram Bot credentials missing",
         }
 
     try:
-        from twilio.rest import Client
-
-        client = Client(settings.TWILIO_ACCOUNT_SID, settings.TWILIO_AUTH_TOKEN)
-        res = client.messages.create(
-            body=message,
-            from_=settings.TWILIO_PHONE_NUMBER,
-            to=to_phone,
-        )
-        logger.info(
-            "[SMS DISPATCHED] To: %s | SID: %s | Status: %s",
-            to_phone,
-            res.sid,
-            res.status,
-        )
-        return {
-            "status": "sent",
-            "channel": "SMS",
-            "message_id": res.sid,
-            "recipient": to_phone,
-            "provider_status": res.status,
+        url = f"https://api.telegram.org/bot{settings.TELEGRAM_BOT_TOKEN}/sendMessage"
+        payload = {
+            "chat_id": str(settings.TELEGRAM_CHAT_ID),
+            "text": telegram_text,
         }
+        with httpx.Client(timeout=10.0) as client:
+            resp = client.post(url, json=payload)
+            res_data = resp.json()
+
+        if resp.status_code == 200 and res_data.get("ok"):
+            msg_id = res_data.get("result", {}).get("message_id", uuid.uuid4().hex[:8])
+            full_msg_id = f"tg-{msg_id}"
+            logger.info(
+                "[SMS/ALERT DISPATCHED VIA TELEGRAM] To: %s | Chat: %s | ID: %s",
+                to_phone,
+                settings.TELEGRAM_CHAT_ID,
+                full_msg_id,
+            )
+            return {
+                "status": "sent",
+                "channel": "SMS",
+                "message_id": full_msg_id,
+                "recipient": to_phone,
+                "telegram_chat_id": settings.TELEGRAM_CHAT_ID,
+                "provider_status": "delivered",
+            }
+        else:
+            err_desc = res_data.get("description", resp.text)
+            logger.error("[TELEGRAM SMS ERROR] Status: %s | Error: %s", resp.status_code, err_desc)
+            return {
+                "status": "failed",
+                "channel": "SMS",
+                "error": err_desc,
+                "recipient": to_phone,
+            }
     except Exception as exc:
         logger.error("[SMS DISPATCH FAILED] To: %s | Error: %s", to_phone, exc)
         return {
@@ -232,64 +214,83 @@ def send_whatsapp_nudge(
     case_id: Optional[str] = None,
 ) -> Dict[str, Any]:
     """
-    Send a WhatsApp nudge via Twilio API or fallback to mock log.
-    When case_id is provided a secure PDF download link is appended to the message.
+    Send a WhatsApp nudge via CallMeBot API or fallback to mock log.
+    When case_id is provided, a PDF download link is appended.
     """
-    # Append PDF link to message
+    formatted_message = message
     if case_id:
-        pdf_link = f"http://localhost:8000/api/cases/{case_id}/pdf"
-        message = f"{message}\n\nView/download your demand letter: {pdf_link}"
+        base_url = settings.BASE_URL.rstrip("/")
+        pdf_link = f"{base_url}/api/cases/{case_id}/pdf"
+        formatted_message = f"{message}\n\n📄 View/download your demand letter: {pdf_link}"
+
+    # Determine target phone number for CallMeBot
+    # Strip whatsapp: prefix if present
+    target_phone = to_phone.replace("whatsapp:", "").strip()
+    if not target_phone or target_phone.startswith("mock-") or target_phone == "unknown":
+        target_phone = settings.CALLMEBOT_PHONE or "+918090175358"
 
     if (
         settings.MOCK_DISPATCH
-        or not settings.TWILIO_ACCOUNT_SID
-        or not settings.TWILIO_AUTH_TOKEN
+        or not settings.CALLMEBOT_API_KEY
     ):
         mock_id = f"mock-wa-{uuid.uuid4().hex[:8]}"
         logger.info(
             "[MOCK WHATSAPP SENT] To: %s | ID: %s | Message: %s",
             to_phone,
             mock_id,
-            message[:160],
+            formatted_message[:160],
         )
         return {
             "status": "mocked",
             "channel": "WHATSAPP",
             "message_id": mock_id,
             "recipient": to_phone,
-            "details": "MOCK_DISPATCH enabled or TWILIO credentials missing",
+            "details": "MOCK_DISPATCH enabled or CALLMEBOT_API_KEY missing",
         }
 
     try:
-        from twilio.rest import Client
-
-        from_number = settings.TWILIO_WHATSAPP_NUMBER
-        if from_number and not from_number.startswith("whatsapp:"):
-            from_number = f"whatsapp:{from_number}"
-
-        to_number = (
-            to_phone if to_phone.startswith("whatsapp:") else f"whatsapp:{to_phone}"
+        encoded_msg = urllib.parse.quote(formatted_message)
+        url = (
+            f"https://api.callmebot.com/whatsapp.php?"
+            f"phone={target_phone}&text={encoded_msg}&apikey={settings.CALLMEBOT_API_KEY}"
         )
 
-        client = Client(settings.TWILIO_ACCOUNT_SID, settings.TWILIO_AUTH_TOKEN)
-        res = client.messages.create(
-            body=message,
-            from_=from_number,
-            to=to_number,
-        )
-        logger.info(
-            "[WHATSAPP DISPATCHED] To: %s | SID: %s | Status: %s",
-            to_number,
-            res.sid,
-            res.status,
-        )
-        return {
-            "status": "sent",
-            "channel": "WHATSAPP",
-            "message_id": res.sid,
-            "recipient": to_phone,
-            "provider_status": res.status,
-        }
+        with httpx.Client(timeout=15.0) as client:
+            resp = client.get(url)
+
+        # CallMeBot returns 200 with text confirmation or error inside response body
+        if resp.status_code == 200:
+            resp_text = resp.text
+            if "error" in resp_text.lower() or "invalid" in resp_text.lower():
+                logger.error("[CALLMEBOT ERROR RESPONSE] %s", resp_text)
+                return {
+                    "status": "failed",
+                    "channel": "WHATSAPP",
+                    "error": resp_text,
+                    "recipient": to_phone,
+                }
+
+            msg_id = f"callmebot-{uuid.uuid4().hex[:8]}"
+            logger.info(
+                "[WHATSAPP DISPATCHED VIA CALLMEBOT] To: %s | ID: %s",
+                target_phone,
+                msg_id,
+            )
+            return {
+                "status": "sent",
+                "channel": "WHATSAPP",
+                "message_id": msg_id,
+                "recipient": to_phone,
+                "provider_response": resp_text[:200],
+            }
+        else:
+            logger.error("[CALLMEBOT HTTP ERROR] Status: %s | Body: %s", resp.status_code, resp.text)
+            return {
+                "status": "failed",
+                "channel": "WHATSAPP",
+                "error": f"HTTP {resp.status_code}: {resp.text}",
+                "recipient": to_phone,
+            }
     except Exception as exc:
         logger.error("[WHATSAPP DISPATCH FAILED] To: %s | Error: %s", to_phone, exc)
         return {
@@ -404,3 +405,4 @@ def dispatch_nudge(
             logger.error("Failed to append audit log for case %s: %s", case_id, exc)
 
     return result
+

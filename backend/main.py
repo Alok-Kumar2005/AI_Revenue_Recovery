@@ -39,12 +39,9 @@ app = FastAPI(
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=[
-        "http://localhost:3000",
-        "http://127.0.0.1:3000",
-    ],
+    allow_origins=settings.CORS_ORIGINS,
     allow_credentials=True,
-    allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
+    allow_methods=["*"],
     allow_headers=["*"],
 )
 
@@ -59,14 +56,15 @@ async def on_startup() -> None:
 
 @app.get("/", tags=["health"])
 async def root():
-    return {"status": "active", "service": "AI Revenue Recovery API"}
+    return {"status": "ok", "service": "AI Revenue Recovery API"}
 
 
 @app.get("/health", tags=["health"])
+@app.get("/api/health", tags=["health"])
 async def health():
     db_ok = ping_db()
     return {
-        "status": "healthy" if db_ok else "degraded",
+        "status": "ok" if db_ok else "degraded",
         "database": "connected" if db_ok else "unreachable",
     }
 

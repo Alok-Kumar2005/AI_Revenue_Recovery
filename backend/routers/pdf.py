@@ -87,6 +87,7 @@ def get_case_pdf(
         content=pdf_bytes,
         media_type="application/pdf",
         headers={
+            "Content-Type": "application/pdf",
             "Content-Disposition": f'inline; filename="{filename}"',
             "Content-Length": str(len(pdf_bytes)),
             "Cache-Control": "no-store",

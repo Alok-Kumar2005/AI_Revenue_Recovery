@@ -259,7 +259,7 @@ export default function CaseDetailPage() {
           </button>
 
           <a
-            href={`http://localhost:8000/api/cases/${id}`}
+            href={`/api/cases/${id}`}
             target="_blank"
             rel="noopener noreferrer"
             className="flex items-center gap-1 text-xs text-slate-500 hover:text-slate-300 transition-colors"
