@@ -26,6 +26,7 @@ import logging
 from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
+from pydantic import BaseModel, ConfigDict
 from sqlalchemy import func
 from sqlalchemy.orm import Session, joinedload
 
@@ -304,4 +305,105 @@ def start_batch_recovery(db: Session = Depends(get_db)) -> dict:
         "total_dispatched": len(dispatched_ids),
         "case_ids": dispatched_ids,
     }
+
+
+# ── POST /api/cases/{case_id}/nudge ───────────────────────────────────────────
+
+class NudgeRequest(BaseModel):
+    channel: str  # EMAIL | SMS | WHATSAPP
+
+    model_config = ConfigDict(extra="allow")
+
+
+class NudgeResponse(BaseModel):
+    case_id: str
+    channel: str
+    status: str
+    message_id: Optional[str] = None
+    detail: Optional[str] = None
+
+
+@router.post(
+    "/cases/{case_id}/nudge",
+    response_model=NudgeResponse,
+    summary="Manually dispatch a nudge for a case via a chosen channel",
+    tags=["cases"],
+)
+def dispatch_case_nudge(
+    case_id: uuid.UUID,
+    body: NudgeRequest,
+    db: Session = Depends(get_db),
+) -> NudgeResponse:
+    """
+    Trigger a manual outreach nudge (Email / SMS / WhatsApp) for a specific case.
+    The case must exist; the customer's email/phone is used as the recipient.
+    Appends an audit-log entry on dispatch.
+    """
+    from backend.execution.nudges import dispatch_nudge  # local import
+
+    case = (
+        db.query(RevenueCase)
+        .options(joinedload(RevenueCase.customer))
+        .filter(RevenueCase.id == case_id)
+        .first()
+    )
+    if case is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"RevenueCase {case_id} not found",
+        )
+
+    channel = body.channel.upper().strip()
+    customer = case.customer
+
+    # Pick the right recipient identifier
+    if channel == "EMAIL":
+        recipient = customer.email if customer else "unknown@example.com"
+    elif channel in ("SMS", "WHATSAPP"):
+        recipient = customer.phone if (customer and customer.phone) else "+0000000000"
+    else:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Unsupported channel: {channel}. Use EMAIL, SMS, or WHATSAPP.",
+        )
+
+    # Build a generic message payload
+    amount_str = f"₹{case.amount:,.0f}" if case.currency == "INR" else f"{case.currency} {case.amount:.2f}"
+    payload = {
+        "subject": f"Action required: Payment recovery for {amount_str}",
+        "message": (
+            f"Hi {customer.name if customer else 'there'}, we noticed your payment of "
+            f"{amount_str} failed. Please retry at your earliest convenience. "
+            f"Reference: {str(case_id)[:8].upper()}"
+        ),
+    }
+
+    result = dispatch_nudge(
+        case_id=str(case_id),
+        channel=channel,
+        recipient=recipient,
+        payload=payload,
+        db=db,
+    )
+
+    try:
+        db.commit()
+    except Exception:
+        db.rollback()
+        raise
+
+    logger.info(
+        "[Nudge] case=%s channel=%s status=%s",
+        str(case_id)[:8],
+        channel,
+        result.get("status"),
+    )
+
+    return NudgeResponse(
+        case_id=str(case_id),
+        channel=channel,
+        status=result.get("status", "unknown"),
+        message_id=result.get("message_id"),
+        detail=result.get("details") or result.get("error"),
+    )
 

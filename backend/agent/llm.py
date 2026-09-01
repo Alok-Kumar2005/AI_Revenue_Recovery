@@ -3,7 +3,7 @@ from langchain_google_genai import ChatGoogleGenerativeAI
 from backend.config import settings
 
 
-def get_gemini_llm() -> ChatGoogleGenerativeAI:
+def get_gemini_llm(timeout: float = 6.0, max_output_tokens: int = 512) -> ChatGoogleGenerativeAI:
     """
     Returns an instance of ChatGoogleGenerativeAI configured with Gemini model
     and settings from application configuration.
@@ -16,4 +16,9 @@ def get_gemini_llm() -> ChatGoogleGenerativeAI:
         model="gemini-2.5-flash",
         google_api_key=api_key,
         temperature=0.2,
+        timeout=timeout,
+        max_retries=1,
+        max_output_tokens=max_output_tokens,
     )
+
+

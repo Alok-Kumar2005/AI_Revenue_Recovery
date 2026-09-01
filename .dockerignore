@@ -1,0 +1,51 @@
+# Backend .dockerignore
+# ─────────────────────
+# Excludes large or sensitive files from the Docker build context.
+
+# Python artefacts
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+.Python
+*.egg-info/
+dist/
+build/
+.eggs/
+
+# Virtual environments
+.venv/
+venv/
+env/
+
+# uv lock / pyproject (not needed inside image — requirements.txt is used)
+uv.lock
+pyproject.toml
+
+# Test files
+backend/test_*.py
+
+# IDE / OS
+.git/
+.gitignore
+.DS_Store
+*.swp
+*.swo
+Thumbs.db
+
+# Secrets / local env
+.env
+.env.*
+!.env.example
+
+# Logs
+logs/
+*.log
+
+# Frontend (not needed in backend context)
+frontend/
+node_modules/
+
+# Docker files themselves (avoid circular COPY)
+Dockerfile
+docker-compose.yml

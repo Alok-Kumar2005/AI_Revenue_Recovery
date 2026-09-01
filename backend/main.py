@@ -19,7 +19,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from backend.config import settings
 from backend.database import ping_db
 from backend.logger import logging
-from backend.routers import dashboard, webhook
+from backend.routers import chat, dashboard, webhook
 
 logger = logging.getLogger(__name__)
 
@@ -36,9 +36,12 @@ app = FastAPI(
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:3000"],
+    allow_origins=[
+        "http://localhost:3000",
+        "http://127.0.0.1:3000",
+    ],
     allow_credentials=True,
-    allow_methods=["*"],
+    allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
     allow_headers=["*"],
 )
 
@@ -67,3 +70,4 @@ async def health():
 
 app.include_router(webhook.router,   prefix="/webhook", tags=["webhook"])
 app.include_router(dashboard.router, prefix="/api",     tags=["dashboard"])
+app.include_router(chat.router,      prefix="/api",     tags=["Chat"])

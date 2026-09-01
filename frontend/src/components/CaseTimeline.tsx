@@ -2,21 +2,28 @@
 
 // src/components/CaseTimeline.tsx
 // Two-panel layout: customer + diagnosis on the left, vertical audit log on the right.
+// Includes manual "Send Nudge" buttons (Email / SMS / WhatsApp) with toast feedback.
 
-import { useState } from "react";
+import { useCallback, useState } from "react";
 import {
   Bell,
   Bot,
   CheckCheck,
+  CheckCircle2,
   ChevronDown,
   ChevronUp,
   Cpu,
+  Loader2,
   Mail,
+  MessageSquare,
+  Phone,
   Search,
   ShieldCheck,
   User,
+  XCircle,
 } from "lucide-react";
 import type { AuditLog, CaseDetail, Intervention } from "@/lib/types";
+import { dispatchNudge } from "@/lib/api";
 
 // ---- Helpers -----------------------------------------------------------------
 
@@ -56,6 +63,145 @@ const RISK_STYLES: Record<string, string> = {
   MEDIUM: "badge-yellow",
   LOW:    "badge-green",
 };
+
+// ---- Toast notification -----------------------------------------------------
+
+interface Toast {
+  id: number;
+  type: "success" | "error" | "loading";
+  message: string;
+}
+
+let toastIdCounter = 0;
+
+function ToastStack({ toasts }: { toasts: Toast[] }) {
+  if (toasts.length === 0) return null;
+  return (
+    <div className="fixed bottom-5 right-5 z-[100] flex flex-col gap-2 w-80">
+      {toasts.map((t) => (
+        <div
+          key={t.id}
+          className={`flex items-start gap-3 rounded-xl px-4 py-3 text-sm font-medium shadow-xl border transition-all duration-300 animate-slide-up
+            ${t.type === "success" ? "bg-emerald-950 border-emerald-700/50 text-emerald-300" : ""}
+            ${t.type === "error"   ? "bg-red-950 border-red-700/50 text-red-300" : ""}
+            ${t.type === "loading" ? "bg-slate-900 border-slate-700/50 text-slate-300" : ""}
+          `}
+        >
+          <span className="shrink-0 mt-0.5">
+            {t.type === "success" && <CheckCircle2 size={15} />}
+            {t.type === "error"   && <XCircle size={15} />}
+            {t.type === "loading" && <Loader2 size={15} className="animate-spin" />}
+          </span>
+          {t.message}
+        </div>
+      ))}
+    </div>
+  );
+}
+
+// ---- Send Nudge Panel -------------------------------------------------------
+
+type Channel = "EMAIL" | "SMS" | "WHATSAPP";
+
+interface NudgeButtonProps {
+  channel: Channel;
+  caseId: string;
+  isBusy: boolean;
+  onDispatch: (channel: Channel) => void;
+}
+
+const CHANNEL_META: Record<Channel, { icon: React.ReactNode; label: string; cls: string }> = {
+  EMAIL:    { icon: <Mail size={12} />,            label: "Email",     cls: "border-blue-700/50 text-blue-300 hover:bg-blue-950/60 disabled:opacity-40" },
+  SMS:      { icon: <Phone size={12} />,           label: "SMS",       cls: "border-amber-700/50 text-amber-300 hover:bg-amber-950/60 disabled:opacity-40" },
+  WHATSAPP: { icon: <MessageSquare size={12} />,   label: "WhatsApp",  cls: "border-emerald-700/50 text-emerald-300 hover:bg-emerald-950/60 disabled:opacity-40" },
+};
+
+function NudgeButton({ channel, isBusy, onDispatch }: NudgeButtonProps) {
+  const meta = CHANNEL_META[channel];
+  return (
+    <button
+      onClick={() => onDispatch(channel)}
+      disabled={isBusy}
+      className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium border bg-transparent transition-colors disabled:cursor-not-allowed ${meta.cls}`}
+    >
+      {isBusy ? <Loader2 size={12} className="animate-spin" /> : meta.icon}
+      {isBusy ? "Sending…" : meta.label}
+    </button>
+  );
+}
+
+function SendNudgeCard({ caseId }: { caseId: string }) {
+  const [busy, setBusy] = useState<Channel | null>(null);
+  const [toasts, setToasts] = useState<Toast[]>([]);
+
+  const addToast = useCallback(
+    (message: string, type: Toast["type"], durationMs = 4000) => {
+      const id = ++toastIdCounter;
+      setToasts((prev) => [...prev, { id, type, message }]);
+      if (type !== "loading") {
+        setTimeout(() => setToasts((prev) => prev.filter((t) => t.id !== id)), durationMs);
+      }
+      return id;
+    },
+    [],
+  );
+
+  const removeToast = useCallback((id: number) => {
+    setToasts((prev) => prev.filter((t) => t.id !== id));
+  }, []);
+
+  const handleDispatch = useCallback(
+    async (channel: Channel) => {
+      if (busy) return;
+      setBusy(channel);
+      const loadingId = addToast(`Dispatching ${channel} nudge…`, "loading");
+      try {
+        const result = await dispatchNudge(caseId, channel);
+        removeToast(loadingId);
+        const isSuccess = result.status === "sent" || result.status === "mocked";
+        addToast(
+          isSuccess
+            ? `${channel} nudge dispatched! ID: ${result.message_id ?? "—"}`
+            : `${channel} nudge failed: ${result.detail ?? result.status}`,
+          isSuccess ? "success" : "error",
+        );
+      } catch (err: unknown) {
+        removeToast(loadingId);
+        const msg = err instanceof Error ? err.message : String(err);
+        addToast(`Failed to dispatch ${channel}: ${msg}`, "error");
+      } finally {
+        setBusy(null);
+      }
+    },
+    [busy, caseId, addToast, removeToast],
+  );
+
+  return (
+    <>
+      <div className="card">
+        <div className="flex items-center gap-2 mb-3">
+          <Bell size={14} className="text-teal-400" />
+          <h3 className="text-sm font-semibold text-slate-200">Send Manual Nudge</h3>
+        </div>
+        <p className="text-xs text-slate-500 mb-3">
+          Manually trigger an outreach message via a chosen channel. An audit log entry will be created.
+        </p>
+        <div className="flex flex-wrap gap-2">
+          {(["EMAIL", "SMS", "WHATSAPP"] as Channel[]).map((ch) => (
+            <NudgeButton
+              key={ch}
+              channel={ch}
+              caseId={caseId}
+              isBusy={busy === ch}
+              onDispatch={handleDispatch}
+            />
+          ))}
+        </div>
+      </div>
+      <ToastStack toasts={toasts} />
+    </>
+  );
+}
 
 // ---- Event Icon + Color map -------------------------------------------------
 
@@ -100,7 +246,12 @@ function getEventMeta(event: string): EventMeta {
       dotColor: "bg-blue-400",
     };
   }
-  if (upper.includes("OUTREACH") || upper.includes("DISPATCH") || upper.includes("SENT") || upper.includes("NUDGE")) {
+  if (
+    upper.includes("OUTREACH") ||
+    upper.includes("DISPATCH") ||
+    upper.includes("SENT") ||
+    upper.includes("NUDGE")
+  ) {
     return {
       icon: <Mail size={13} strokeWidth={2} />,
       label: "Outreach Dispatched",
@@ -206,6 +357,7 @@ function InterventionChip({ iv }: { iv: Intervention }) {
 
 export default function CaseTimeline({ caseDetail }: { caseDetail: CaseDetail }) {
   const {
+    id,
     customer,
     audit_logs,
     interventions,
@@ -301,6 +453,9 @@ export default function CaseTimeline({ caseDetail }: { caseDetail: CaseDetail })
             </div>
           </div>
         </div>
+
+        {/* Manual Nudge Dispatch */}
+        <SendNudgeCard caseId={id} />
 
         {/* Interventions */}
         {interventions.length > 0 && (

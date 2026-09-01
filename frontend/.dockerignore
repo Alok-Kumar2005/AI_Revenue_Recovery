@@ -1,0 +1,14 @@
+# Frontend .dockerignore
+# ──────────────────────
+
+node_modules/
+.next/
+out/
+.git/
+*.log
+.env
+.env.*
+!.env.example
+.DS_Store
+Thumbs.db
+*.swp

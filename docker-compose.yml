@@ -1,0 +1,95 @@
+# ─── docker-compose.yml ───────────────────────────────────────────────────────
+# AI Revenue Recovery — single-command orchestration
+#
+# Usage:
+#   docker-compose up --build          # build and start all services
+#   docker-compose up -d               # detached (background) mode
+#   docker-compose down -v             # stop and remove volumes
+#   docker-compose logs -f backend     # tail backend logs
+#
+# Prerequisites:
+#   Copy .env.example to .env and fill in your credentials before running.
+# ─────────────────────────────────────────────────────────────────────────────
+
+version: "3.9"
+
+# ── Named Volumes ─────────────────────────────────────────────────────────────
+volumes:
+  # Persist Alembic migration state / any local SQLite DB (if used in dev)
+  backend_data:
+
+# ── Shared Network ────────────────────────────────────────────────────────────
+networks:
+  recovery_net:
+    driver: bridge
+
+# ── Services ──────────────────────────────────────────────────────────────────
+services:
+
+  # ── Backend (FastAPI + Uvicorn) ───────────────────────────────────────────
+  backend:
+    build:
+      context: .            # project root (so `COPY . .` includes backend/ pkg)
+      dockerfile: backend/Dockerfile
+    container_name: ai_recovery_backend
+    restart: unless-stopped
+
+    # Inject credentials from the root .env file
+    env_file:
+      - .env
+
+    # Override / supplement specific env vars inside the container
+    environment:
+      - PYTHONUNBUFFERED=1
+      - MOCK_DISPATCH=${MOCK_DISPATCH:-True}
+
+    ports:
+      - "8000:8000"
+
+    networks:
+      - recovery_net
+
+    volumes:
+      # Persist any local data / Alembic state
+      - backend_data:/app/data
+
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 20s
+
+  # ── Frontend (Next.js) ────────────────────────────────────────────────────
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+      args:
+        # Routes Next.js server-side fetches through Docker's internal DNS
+        # so `backend` resolves to the backend service container.
+        NEXT_PUBLIC_API_URL: http://backend:8000
+    container_name: ai_recovery_frontend
+    restart: unless-stopped
+
+    environment:
+      - NODE_ENV=production
+      - NEXT_TELEMETRY_DISABLED=1
+
+    ports:
+      - "3000:3000"
+
+    networks:
+      - recovery_net
+
+    # Do not start the frontend until the backend is healthy
+    depends_on:
+      backend:
+        condition: service_healthy
+
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:3000/"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 30s
