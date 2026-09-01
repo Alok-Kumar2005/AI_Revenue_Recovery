@@ -1,0 +1,110 @@
+@import url("https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap");
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* ── Base ─────────────────────────────────────────────────────────────────── */
+
+:root {
+  --nav-height: 60px;
+  --sidebar-width: 0px;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html {
+  scroll-behavior: smooth;
+}
+
+body {
+  @apply bg-surface-950 text-slate-100 font-sans antialiased;
+  min-height: 100vh;
+}
+
+/* ── Custom Scrollbar ──────────────────────────────────────────────────────── */
+
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+::-webkit-scrollbar-track {
+  @apply bg-surface-900;
+}
+
+::-webkit-scrollbar-thumb {
+  @apply bg-slate-600 rounded-full;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  @apply bg-slate-500;
+}
+
+/* ── Glassmorphism utilities ──────────────────────────────────────────────── */
+
+.glass {
+  background: rgba(255, 255, 255, 0.04);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  border: 1px solid rgba(255, 255, 255, 0.07);
+}
+
+.glass-heavy {
+  background: rgba(255, 255, 255, 0.07);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+  border: 1px solid rgba(255, 255, 255, 0.10);
+}
+
+/* ── Card ─────────────────────────────────────────────────────────────────── */
+
+.card {
+  @apply glass rounded-xl p-5;
+}
+
+/* ── Badge variants ───────────────────────────────────────────────────────── */
+
+.badge {
+  @apply inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-semibold tracking-wide;
+}
+
+.badge-green  { @apply bg-emerald-950 text-emerald-300 ring-1 ring-emerald-700/40; }
+.badge-yellow { @apply bg-amber-950   text-amber-300   ring-1 ring-amber-700/40; }
+.badge-red    { @apply bg-red-950     text-red-300     ring-1 ring-red-700/40; }
+.badge-blue   { @apply bg-blue-950    text-blue-300    ring-1 ring-blue-700/40; }
+.badge-purple { @apply bg-purple-950  text-purple-300  ring-1 ring-purple-700/40; }
+.badge-slate  { @apply bg-slate-800   text-slate-300   ring-1 ring-slate-600/40; }
+
+/* ── Skeleton loader ──────────────────────────────────────────────────────── */
+
+@keyframes shimmer {
+  0%   { background-position: -500px 0; }
+  100% { background-position: 500px 0; }
+}
+
+.skeleton {
+  background: linear-gradient(
+    90deg,
+    rgba(255,255,255,0.04) 25%,
+    rgba(255,255,255,0.08) 50%,
+    rgba(255,255,255,0.04) 75%
+  );
+  background-size: 1000px 100%;
+  animation: shimmer 1.6s infinite linear;
+  @apply rounded;
+}
+
+/* ── Timeline line ───────────────────────────────────────────────────────── */
+
+.timeline-line {
+  @apply absolute left-4 top-8 bottom-0 w-px bg-slate-700;
+}
+
+/* ── Focus ring ───────────────────────────────────────────────────────────── */
+
+.focus-ring {
+  @apply focus:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500 focus-visible:ring-offset-2 focus-visible:ring-offset-surface-950;
+}

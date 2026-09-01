@@ -220,3 +220,8 @@ __marimo__/
 #logs
 logs
 logs/*  
+
+node_modules/
+frontend/node_modules/
+.next/
+frontend/.next/

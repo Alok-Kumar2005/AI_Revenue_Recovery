@@ -14,12 +14,33 @@ from celery import Celery
 
 from backend.config import settings
 
+
+def _normalize_redis_url(url: str) -> str:
+    """
+    Append ssl_cert_reqs=CERT_NONE to a rediss:// URL if it is missing.
+    Celery's Redis backend raises ValueError when this param is absent on TLS URLs.
+    Upstash and other managed Redis providers use rediss:// (TLS) by default.
+    """
+    if not url.startswith("rediss://"):
+        return url
+    if "ssl_cert_reqs" in url:
+        return url          # already present — leave untouched
+    separator = "&" if "?" in url else "?"
+    return f"{url}{separator}ssl_cert_reqs=CERT_NONE"
+
+
 # ── Broker selection ──────────────────────────────────────────────────────────
 
-_redis_url = settings.REDIS_URL.strip()
-_use_redis = bool(_redis_url and _redis_url.startswith(("redis://", "rediss://")))
+_raw_redis_url = settings.REDIS_URL.strip()
+_use_redis = bool(
+    _raw_redis_url and _raw_redis_url.startswith(("redis://", "rediss://"))
+)
+_redis_url = _normalize_redis_url(_raw_redis_url) if _use_redis else ""
 
 if _use_redis:
+    _is_tls = _redis_url.startswith("rediss://")
+    _ssl_cfg = {"ssl_cert_reqs": None} if _is_tls else {}   # ssl.CERT_NONE == None
+
     celery_app = Celery(
         "ai_revenue_recovery",
         broker=_redis_url,
@@ -34,6 +55,9 @@ if _use_redis:
         enable_utc=True,
         task_track_started=True,
         broker_connection_retry_on_startup=True,
+        # ── TLS settings required for rediss:// (Upstash / managed Redis) ──
+        broker_use_ssl=_ssl_cfg if _is_tls else None,
+        redis_backend_use_ssl=_ssl_cfg if _is_tls else None,
     )
 else:
     # ── Eager (in-process) fallback — no Redis required ──────────────────────

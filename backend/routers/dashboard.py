@@ -267,3 +267,41 @@ def list_interventions(
         .all()
     )
     return [InterventionSchema.from_orm_obj(iv) for iv in interventions]
+
+
+# -- POST /api/batch/start-recovery --------------------------------------------
+
+@router.post(
+    "/batch/start-recovery",
+    summary="Dispatch Celery recovery tasks for all PENDING cases",
+    tags=["batch"],
+)
+def start_batch_recovery(db: Session = Depends(get_db)) -> dict:
+    """
+    Fetch every RevenueCase with status PENDING and dispatch an async
+    Celery `process_recovery_case` task for each one.  The endpoint returns
+    immediately; workers process the cases in the background.
+    """
+    from backend.tasks import process_recovery_case  # local import avoids circular dep
+
+    pending_cases = (
+        db.query(RevenueCase)
+        .filter(RevenueCase.status == "PENDING")
+        .all()
+    )
+
+    dispatched_ids: list[str] = []
+    for case in pending_cases:
+        process_recovery_case.delay(case_id=str(case.id))
+        dispatched_ids.append(str(case.id))
+
+    logger.info(
+        "[Batch] Dispatched %d recovery tasks for PENDING cases.", len(dispatched_ids)
+    )
+
+    return {
+        "status": "started",
+        "total_dispatched": len(dispatched_ids),
+        "case_ids": dispatched_ids,
+    }
+

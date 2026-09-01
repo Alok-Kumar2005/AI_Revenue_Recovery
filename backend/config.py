@@ -28,6 +28,21 @@ class Settings(BaseSettings):
     # Leave empty to run Celery in task_always_eager mode (no Redis required).
     REDIS_URL: str = ""
 
+    # ── Messaging dispatchers ─────────────────────────────────────────────────
+    # SendGrid (Email)
+    SENDGRID_API_KEY: str = ""
+    FROM_EMAIL: str = "recovery@yourdomain.com"
+
+    # Twilio (SMS + WhatsApp)
+    TWILIO_ACCOUNT_SID: str = ""
+    TWILIO_AUTH_TOKEN: str = ""
+    TWILIO_PHONE_NUMBER: str = ""           # E.164, e.g. "+14155000000"
+    TWILIO_WHATSAPP_NUMBER: str = ""        # e.g. "whatsapp:+14155238886"
+
+    # When True (the default) all dispatchers log mock output instead of
+    # making real API calls.  Set to False in production after adding creds.
+    MOCK_DISPATCH: bool = True
+
     @property
     def DATABASE_URL(self) -> str:
         """

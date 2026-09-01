@@ -34,17 +34,14 @@ app = FastAPI(
     redoc_url="/redoc",
 )
 
-# ── CORS (allow all origins for development) ───────────────────────────────────
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=["http://localhost:3000"],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
-
-# ── Lifespan events ────────────────────────────────────────────────────────────
 @app.on_event("startup")
 async def on_startup() -> None:
     """Verify DB connectivity on startup."""
@@ -54,8 +51,6 @@ async def on_startup() -> None:
     else:
         logger.error("Neon PostgreSQL connection: FAILED — check .env credentials")
 
-
-# ── Health endpoints ───────────────────────────────────────────────────────────
 @app.get("/", tags=["health"])
 async def root():
     return {"status": "active", "service": "AI Revenue Recovery API"}
@@ -70,6 +65,5 @@ async def health():
     }
 
 
-# ── Routers ────────────────────────────────────────────────────────────────────
 app.include_router(webhook.router,   prefix="/webhook", tags=["webhook"])
 app.include_router(dashboard.router, prefix="/api",     tags=["dashboard"])

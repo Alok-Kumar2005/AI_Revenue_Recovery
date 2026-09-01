@@ -18,3 +18,6 @@ scikit-learn
 joblib
 numpy
 pandas
+sendgrid
+twilio
+resend
