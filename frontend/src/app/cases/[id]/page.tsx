@@ -4,8 +4,8 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
-import { ArrowLeft, CreditCard, ExternalLink, Loader2, CheckCircle2, XCircle } from "lucide-react";
-import { fetchCaseDetail, simulatePayment } from "@/lib/api";
+import { ArrowLeft, CreditCard, ExternalLink, FileText, Loader2, CheckCircle2, XCircle } from "lucide-react";
+import { fetchCaseDetail, getCasePdfUrl, simulatePayment } from "@/lib/api";
 import type { CaseDetail } from "@/lib/types";
 import CaseTimeline from "@/components/CaseTimeline";
 
@@ -204,6 +204,25 @@ export default function CaseDetailPage() {
         </button>
 
         <div className="flex items-center gap-3 flex-wrap">
+          {/* ── Download Demand Letter button ──────────────────────────── */}
+          <a
+            id="btn-download-demand-letter"
+            href={getCasePdfUrl(id)}
+            target="_blank"
+            rel="noopener noreferrer"
+            title="Open the demand letter PDF in a new browser tab"
+            className={
+              "flex items-center gap-2 rounded-lg px-4 py-2 text-sm font-semibold " +
+              "border transition-all duration-200 focus:outline-none focus:ring-2 " +
+              "focus:ring-amber-500/50 focus:ring-offset-1 focus:ring-offset-transparent " +
+              "border-amber-500/50 bg-amber-600/10 text-amber-300 " +
+              "hover:bg-amber-600/30 hover:border-amber-400/70 hover:text-amber-100 active:scale-95"
+            }
+          >
+            <FileText size={14} className="shrink-0" />
+            📄 Download Demand Letter
+          </a>
+
           {/* ── Simulate Payment button ───────────────────────────────────── */}
           <button
             id="btn-simulate-payment"

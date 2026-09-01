@@ -10,6 +10,7 @@ Routes:
   GET  /api/metrics/summary        → live KPI aggregates
   GET  /api/cases                  → paginated case list
   GET  /api/cases/{case_id}        → case detail + audit trail
+  GET  /api/cases/{case_id}/pdf    → demand-letter PDF download
   GET  /api/interventions          → recent interventions
   POST /api/webhooks/payment       → automated payment reconciliation
   POST /api/webhooks/simulate      → UI-driven payment simulation
@@ -21,7 +22,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from backend.config import settings
 from backend.database import ping_db
 from backend.logger import logging
-from backend.routers import chat, dashboard, webhook, webhooks
+from backend.routers import chat, dashboard, pdf, webhook, webhooks
 
 logger = logging.getLogger(__name__)
 
@@ -74,3 +75,4 @@ app.include_router(webhook.router,   prefix="/webhook", tags=["webhook"])
 app.include_router(dashboard.router, prefix="/api",     tags=["dashboard"])
 app.include_router(chat.router,      prefix="/api",     tags=["Chat"])
 app.include_router(webhooks.router,  prefix="/api",     tags=["Webhooks"])
+app.include_router(pdf.router,       prefix="/api",     tags=["pdf"])

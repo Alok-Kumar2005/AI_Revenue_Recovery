@@ -21,3 +21,4 @@ pandas
 sendgrid
 twilio
 resend
+reportlab>=4.0.0

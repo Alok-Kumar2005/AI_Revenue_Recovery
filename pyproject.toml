@@ -29,4 +29,5 @@ dependencies = [
     "sendgrid>=6.11.0",
     "twilio>=9.0.0",
     "resend>=2.0.0",
+    "reportlab>=4.0.0",
 ]

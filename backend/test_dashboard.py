@@ -334,6 +334,32 @@ def test_list_interventions(errors: list[str]) -> None:
         errors.append("interventions: empty list")
 
 
+def test_case_pdf(case_id: str, errors: list[str]) -> None:
+    """GET /api/cases/{case_id}/pdf — assert valid PDF response."""
+    print(f"\n{BOLD}[5/5] GET /api/cases/{case_id}/pdf{RESET}")
+    resp = client.get(f"/api/cases/{case_id}/pdf")
+
+    if resp.status_code == 200:
+        _ok("HTTP 200 OK")
+    else:
+        _fail(f"HTTP {resp.status_code}: {resp.text}")
+        errors.append("pdf: non-200 status")
+        return
+
+    content_type = resp.headers.get("content-type", "")
+    if "application/pdf" in content_type:
+        _ok(f"Content-Type is application/pdf: {content_type}")
+    else:
+        _fail(f"Unexpected Content-Type: {content_type}")
+        errors.append(f"pdf: wrong content type {content_type}")
+
+    if resp.content.startswith(b"%PDF"):
+        _ok(f"PDF magic bytes verified (%PDF) - Length: {len(resp.content)} bytes")
+    else:
+        _fail("Response content does not begin with %PDF header")
+        errors.append("pdf: invalid PDF binary data")
+
+
 # ── Summary ────────────────────────────────────────────────────────────────────
 
 def _summary(errors: list[str]) -> None:
@@ -375,6 +401,7 @@ def run_tests() -> None:
     test_list_cases(errors)
     test_case_detail(case_id, errors)
     test_list_interventions(errors)
+    test_case_pdf(case_id, errors)
 
     _summary(errors)
 
