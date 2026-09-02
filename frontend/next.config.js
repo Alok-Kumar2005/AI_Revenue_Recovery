@@ -1,11 +1,13 @@
 /** @type {import('next').NextConfig} */
-const backendUrl =
+const backendUrl = (
   process.env.BACKEND_URL ||
   process.env.NEXT_PUBLIC_API_URL ||
-  "http://localhost:8000";
+  "http://localhost:8000"
+).replace(/\/$/, "");
 
 const nextConfig = {
-  output: "standalone",
+  // Use standalone output only in Docker environments (not on Vercel)
+  ...(process.env.VERCEL ? {} : { output: "standalone" }),
   typescript: {
     // Prevent stale type errors from blocking production deployments
     ignoreBuildErrors: true,
@@ -19,12 +21,12 @@ const nextConfig = {
       // Proxy /api/* → FastAPI /api/*
       {
         source: "/api/:path*",
-        destination: `${backendUrl.rstrip ? backendUrl : backendUrl.replace(/\/$/, "")}/api/:path*`,
+        destination: `${backendUrl}/api/:path*`,
       },
-      // Proxy /health → FastAPI /health  (used by the Navbar status pill)
+      // Proxy /health → FastAPI /health (used by Navbar status pill)
       {
         source: "/health",
-        destination: `${backendUrl.replace(/\/$/, "")}/health`,
+        destination: `${backendUrl}/health`,
       },
     ];
   },
