@@ -86,7 +86,8 @@ services:
       - backend.celery_app
       - worker
       - --loglevel=info
-      - --concurrency=4
+      - --pool=solo
+      - --concurrency=1
 
     env_file:
       - .env
