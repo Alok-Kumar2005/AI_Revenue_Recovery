@@ -20,7 +20,6 @@ from sqlalchemy.orm import Session, joinedload
 
 from backend.database import get_db
 from backend.models import Customer, RevenueCase
-from backend.services.pdf_generator import generate_demand_letter_pdf
 
 logger = logging.getLogger(__name__)
 
@@ -77,6 +76,9 @@ def get_case_pdf(
         str(case_id)[:8],
         customer.email,
     )
+
+    # Lazy-load PDF generator and ReportLab on demand
+    from backend.services.pdf_generator import generate_demand_letter_pdf
 
     pdf_buffer = generate_demand_letter_pdf(case=case, customer=customer)
     pdf_bytes  = pdf_buffer.read()

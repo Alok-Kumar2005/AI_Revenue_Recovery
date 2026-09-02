@@ -18,8 +18,6 @@ from datetime import date, datetime, timezone
 from backend.celery_app import celery_app
 from backend.database import sync_session
 from backend.models import AuditLog, Customer, Intervention, RecoveryMetric, RevenueCase
-from backend.diagnosis.classifier import diagnose_failure
-from backend.agent.graph import run_recovery_agent
 
 logger = logging.getLogger(__name__)
 
@@ -68,6 +66,7 @@ def process_recovery_case(self, case_id: str) -> dict:
 
     # ── 2. Diagnose failure ───────────────────────────────────────────────────
     try:
+        from backend.diagnosis.classifier import diagnose_failure
         diagnosis = diagnose_failure(
             error_code=failure_reason,
             error_description=failure_reason,
@@ -102,6 +101,7 @@ def process_recovery_case(self, case_id: str) -> dict:
     }
 
     try:
+        from backend.agent.graph import run_recovery_agent
         agent_result = run_recovery_agent(case_data=case_data, diagnosis=diagnosis)
         logger.info("[Task] Agent result: %s", agent_result)
     except Exception as exc:

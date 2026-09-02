@@ -1,53 +1,61 @@
-# ─── Backend Dockerfile ───────────────────────────────────────────────────────
-# AI Revenue Recovery — FastAPI / Uvicorn container
-#
-# Build:  docker build -t ai-revenue-backend ./backend
-# Run:    docker run --env-file .env -p 8000:8000 ai-revenue-backend
-# ─────────────────────────────────────────────────────────────────────────────
+# ==========================================
+# Stage 1: Build & Install Dependencies
+# ==========================================
+FROM python:3.11-slim AS builder
 
-FROM python:3.11-slim
-
-# Metadata
-LABEL maintainer="AI Revenue Recovery Team"
-LABEL description="FastAPI backend for AI Revenue Recovery"
-
-# Prevent .pyc files and enable stdout/stderr unbuffered output
-ENV PYTHONDONTWRITEBYTECODE=1 \
-    PYTHONUNBUFFERED=1 \
-    PIP_NO_CACHE_DIR=1 \
-    PIP_DISABLE_PIP_VERSION_CHECK=1
-
-# Install system dependencies required by psycopg2-binary
-RUN apt-get update && apt-get install -y --no-install-recommends \
-        gcc \
-        libpq-dev \
-        curl \
-    && rm -rf /var/lib/apt/lists/*
-
-# Set working directory
 WORKDIR /app
 
-# Copy and install Python dependencies first (layer caching)
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    build-essential \
+    binutils \
+    libpq-dev \
+    && rm -rf /var/lib/apt/lists/*
+
+RUN python -m venv /opt/venv
+ENV PATH="/opt/venv/bin:$PATH"
+
 COPY requirements.txt .
-RUN pip install --upgrade pip && \
-    pip install -r requirements.txt
 
-# Copy the entire project (backend package + root-level files)
-COPY . .
+RUN pip install --no-cache-dir --upgrade pip setuptools wheel && \
+    pip install --no-cache-dir -r requirements.txt
 
-# Create a non-root user for security
-RUN addgroup --system appgroup && \
-    adduser  --system --ingroup appgroup appuser && \
-    chown -R appuser:appgroup /app
+RUN find /opt/venv -type f -name "*.so*" -exec strip --strip-unneeded {} + 2>/dev/null || true
+
+RUN find /opt/venv -type d -name "tests" -exec rm -rf {} + 2>/dev/null || true && \
+    find /opt/venv -type d -name "test" -exec rm -rf {} + 2>/dev/null || true && \
+    find /opt/venv -name "*.pyc" -delete && \
+    find /opt/venv -name "__pycache__" -delete
+
+# ==========================================
+# Stage 2: Minimal Runtime
+# ==========================================
+FROM python:3.11-slim AS runner
+
+WORKDIR /app
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    libpq5 \
+    curl \
+    && rm -rf /var/lib/apt/lists/*
+
+COPY --from=builder /opt/venv /opt/venv
+ENV PATH="/opt/venv/bin:$PATH"
+
+# ── Thread & memory limits (keeps NumPy/OpenBLAS/MKL to 1 thread each) ──────
+ENV OMP_NUM_THREADS=1
+ENV OPENBLAS_NUM_THREADS=1
+ENV MKL_NUM_THREADS=1
+ENV VECLIB_MAXIMUM_THREADS=1
+ENV NUMEXPR_NUM_THREADS=1
+ENV MALLOC_TRIM_THRESHOLD_=100000
+
+COPY . /app
+
+RUN (chmod +x /app/start.sh /app/backend/start.sh 2>/dev/null || true) && \
+    useradd -m appuser && \
+    chown -R appuser:appuser /app
 
 USER appuser
 
-# Expose the API port
 EXPOSE 8000
-
-# Health-check so Docker / Compose knows when the service is ready
-HEALTHCHECK --interval=30s --timeout=10s --start-period=20s --retries=3 \
-    CMD curl -f http://localhost:8000/health || exit 1
-
-# Start the ASGI server
-CMD ["uvicorn", "backend.main:app", "--host", "0.0.0.0", "--port", "8000"]
+CMD ["./start.sh"]

@@ -25,18 +25,21 @@ Reconciliation behaviour:
 
 from __future__ import annotations
 
+import hashlib
+import hmac
 import logging
 import uuid
 from datetime import date, datetime, timezone
 from typing import Optional
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Request, status
 from pydantic import BaseModel, Field
 from sqlalchemy import func
 from sqlalchemy.orm import Session
 
+from backend.config import settings
 from backend.database import get_db
-from backend.models import AuditLog, RecoveryMetric, RevenueCase
+from backend.models import AuditLog, Customer, RecoveryMetric, RevenueCase
 
 logger = logging.getLogger(__name__)
 
@@ -347,3 +350,163 @@ def simulate_payment(
     payment_ref = body.payment_id or _generate_payment_ref(body.provider)
     case = _find_case(db, case_id=body.case_id)
     return _reconcile_case(db, case, body.amount_paid, body.provider, payment_ref)
+
+
+# ── POST /api/webhooks/razorpay ────────────────────────────────────────────────
+
+_MOCK_WEBHOOK_SECRETS = {"", "mock", "test", "your_webhook_secret", "changeme", "rzp_webhook_secret_mock"}
+
+
+def _verify_razorpay_webhook_signature(raw_body: bytes, signature: str) -> bool:
+    secret = settings.RAZORPAY_WEBHOOK_SECRET or settings.RZP_WEBHOOK_SECRET or ""
+    if not secret or secret.strip().lower() in _MOCK_WEBHOOK_SECRETS:
+        logger.debug("[Razorpay Webhook] Mock secret detected — skipping signature verification.")
+        return True
+    if not signature:
+        logger.warning("[Razorpay Webhook] Missing X-Razorpay-Signature header.")
+        return False
+    try:
+        expected = hmac.new(
+            secret.encode("utf-8"),
+            raw_body,
+            hashlib.sha256,
+        ).hexdigest()
+        return hmac.compare_digest(expected, signature)
+    except Exception as exc:
+        logger.error("[Razorpay Webhook] HMAC calculation failed: %s", exc)
+        return False
+
+
+@router.post(
+    "/webhooks/razorpay",
+    summary="Real Razorpay Webhook Ingestion & Signature Verification",
+    tags=["Webhooks"],
+)
+async def handle_razorpay_webhook(
+    request: Request,
+    db: Session = Depends(get_db),
+):
+    """
+    Ingest real Razorpay webhooks:
+    - Verifies incoming X-Razorpay-Signature header against raw request body using RAZORPAY_WEBHOOK_SECRET.
+    - If event == "payment.failed":
+        Extract payment entity, customer email, amount (converted from paise: amount/100), currency,
+        error_code, payment method. Creates a new RevenueCase record with status="PENDING".
+        Returns {"status": "case_created", "case_id": case.id}.
+    - If event == "payment_link.paid":
+        Extract payment_link entity, locate corresponding RevenueCase by ID/reference.
+        Update case status to "RECOVERED" and log recovered timestamp and revenue amount.
+        Returns {"status": "case_recovered", "case_id": case.id}.
+    """
+    raw_body = await request.body()
+    signature = request.headers.get("X-Razorpay-Signature", "")
+
+    if not _verify_razorpay_webhook_signature(raw_body, signature):
+        logger.warning("[Razorpay Webhook] Invalid signature")
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Invalid Razorpay webhook signature",
+        )
+
+    try:
+        payload = await request.json()
+    except Exception:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="Invalid JSON payload",
+        )
+
+    event = payload.get("event", "")
+    logger.info("[Razorpay Webhook] Ingesting event: %s", event)
+
+    if event == "payment.failed":
+        payment = payload.get("payload", {}).get("payment", {}).get("entity", {})
+        email = (
+            payment.get("email")
+            or payment.get("customer_details", {}).get("email")
+            or "unknown@example.com"
+        )
+        name = (
+            payment.get("notes", {}).get("name")
+            or payment.get("customer_details", {}).get("name")
+            or email.split("@")[0]
+        )
+        phone = payment.get("contact") or None
+
+        amount_paise = int(payment.get("amount", 0))
+        amount_inr = amount_paise / 100.0
+        currency = payment.get("currency", "INR")
+        error_code = payment.get("error_code") or payment.get("error_reason") or "UNKNOWN_ERROR"
+        payment_method = payment.get("method") or "unknown"
+        razorpay_payment_id = payment.get("id")
+        razorpay_order_id = payment.get("order_id")
+
+        # Get or create customer
+        customer = db.query(Customer).filter(Customer.email == email).first()
+        if not customer:
+            customer = Customer(name=name, email=email, phone=phone)
+            db.add(customer)
+            db.flush()
+
+        case = RevenueCase(
+            customer_id=customer.id,
+            amount=amount_inr,
+            currency=currency,
+            status="PENDING",
+            risk_level="MEDIUM",
+            failure_reason=error_code,
+            root_cause=f"Razorpay failure ({payment_method}): {error_code}",
+            razorpay_payment_id=razorpay_payment_id,
+            razorpay_order_id=razorpay_order_id,
+        )
+        db.add(case)
+        db.commit()
+        db.refresh(case)
+
+        logger.info("[Razorpay Webhook] Created RevenueCase %s (PENDING)", case.id)
+        return {"status": "case_created", "case_id": str(case.id)}
+
+    elif event == "payment_link.paid":
+        payment_link = payload.get("payload", {}).get("payment_link", {}).get("entity", {})
+        notes = payment_link.get("notes", {})
+        case_id = notes.get("case_id") or payment_link.get("reference_id") or payment_link.get("id")
+
+        case = None
+        if case_id:
+            try:
+                case = _find_case(db, case_id=case_id)
+            except HTTPException:
+                case = None
+
+        if case is None:
+            customer_email = payment_link.get("customer", {}).get("email")
+            if customer_email:
+                try:
+                    case = _find_case(db, customer_email=customer_email)
+                except HTTPException:
+                    case = None
+
+        if case is None:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="No RevenueCase found for payment_link.paid event",
+            )
+
+        amount_paid = float(payment_link.get("amount_paid", payment_link.get("amount", 0))) / 100.0
+        if amount_paid <= 0:
+            amount_paid = case.amount
+
+        payment_ref = payment_link.get("id") or f"plink_{uuid.uuid4().hex[:8]}"
+
+        _reconcile_case(
+            db=db,
+            case=case,
+            amount_paid=amount_paid,
+            provider="Razorpay Payment Link",
+            payment_ref=payment_ref,
+        )
+        logger.info("[Razorpay Webhook] Payment link paid for case %s", case.id)
+        return {"status": "case_recovered", "case_id": str(case.id)}
+
+    return {"status": "ignored", "event": event}
+

@@ -1,21 +1,20 @@
 """
 Synthetic dataset generator & Scikit-learn model training for payment failure diagnosis.
 """
-import os
-import joblib
-import numpy as np
-import pandas as pd
-from sklearn.ensemble import RandomForestClassifier
-from sklearn.compose import ColumnTransformer
-from sklearn.preprocessing import OneHotEncoder
-from sklearn.pipeline import Pipeline
-from sklearn.model_selection import train_test_split
-from sklearn.metrics import classification_report
+from __future__ import annotations
 
-def generate_synthetic_data(num_samples: int = 2000, random_state: int = 42) -> pd.DataFrame:
+import os
+from typing import Any, Optional
+
+
+def generate_synthetic_data(num_samples: int = 2000, random_state: int = 42):
     """
     Generates synthetic payment failure data with realistic distributions.
+    Lazy-loads numpy and pandas.
     """
+    import numpy as np
+    import pandas as pd
+
     np.random.seed(random_state)
     
     payment_methods = ["upi", "card", "netbanking"]
@@ -87,10 +86,19 @@ def generate_synthetic_data(num_samples: int = 2000, random_state: int = 42) -> 
     return df
 
 
-def train_model(save_path: str = None) -> Pipeline:
+def train_model(save_path: Optional[str] = None) -> Any:
     """
     Trains RandomForestClassifier on synthetic payment failure dataset and saves model pipeline.
+    Lazy-loads joblib and scikit-learn modules.
     """
+    import joblib
+    from sklearn.ensemble import RandomForestClassifier
+    from sklearn.compose import ColumnTransformer
+    from sklearn.preprocessing import OneHotEncoder
+    from sklearn.pipeline import Pipeline
+    from sklearn.model_selection import train_test_split
+    from sklearn.metrics import classification_report
+
     if save_path is None:
         base_dir = os.path.dirname(os.path.abspath(__file__))
         models_dir = os.path.join(base_dir, "models")

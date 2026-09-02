@@ -1,35 +1,38 @@
-# ─── docker-compose.yml ───────────────────────────────────────────────────────
-# AI Revenue Recovery — single-command orchestration
-#
-# Usage:
-#   docker-compose up --build          # build and start all services
-#   docker-compose up -d               # detached (background) mode
-#   docker-compose down -v             # stop and remove volumes
-#   docker-compose logs -f backend     # tail backend logs
-#
-# Prerequisites:
-#   Copy .env.example to .env and fill in your credentials before running.
-# ─────────────────────────────────────────────────────────────────────────────
+# docker-compose.yml — AI Revenue Recovery
 
-version: "3.9"
-
-# ── Named Volumes ─────────────────────────────────────────────────────────────
 volumes:
-  # Persist Alembic migration state / any local SQLite DB (if used in dev)
   backend_data:
-
-# ── Shared Network ────────────────────────────────────────────────────────────
+  redis_data:
 networks:
   recovery_net:
     driver: bridge
-
-# ── Services ──────────────────────────────────────────────────────────────────
 services:
+  redis:
+    image: redis:7-alpine
+    container_name: ai_recovery_redis
+    restart: unless-stopped
+
+    networks:
+      - recovery_net
+
+    volumes:
+      - redis_data:/data
+
+    # Expose only to internal network (no host port binding needed)
+    expose:
+      - "6379"
+
+    healthcheck:
+      test: [ "CMD", "redis-cli", "ping" ]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 5s
 
   # ── Backend (FastAPI + Uvicorn) ───────────────────────────────────────────
   backend:
     build:
-      context: .            # project root (so `COPY . .` includes backend/ pkg)
+      context: . # project root (so `COPY . .` includes backend/ pkg)
       dockerfile: backend/Dockerfile
     container_name: ai_recovery_backend
     restart: unless-stopped
@@ -42,6 +45,8 @@ services:
     environment:
       - PYTHONUNBUFFERED=1
       - MOCK_DISPATCH=${MOCK_DISPATCH:-True}
+      # Point Celery at the local Redis container when no Upstash URL is set
+      - CELERY_BROKER_URL=${REDIS_URL:-redis://redis:6379/0}
 
     ports:
       - "8000:8000"
@@ -53,12 +58,66 @@ services:
       # Persist any local data / Alembic state
       - backend_data:/app/data
 
+    depends_on:
+      redis:
+        condition: service_healthy
+
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      test: [ "CMD", "curl", "-f", "http://localhost:8000/health" ]
       interval: 30s
       timeout: 10s
       retries: 5
       start_period: 20s
+
+  # ── Celery Worker ─────────────────────────────────────────────────────────
+  # Shares the same Docker image as `backend` — no separate Dockerfile needed.
+  # Celery boots automatically alongside the API and stays continuously active.
+  celery_worker:
+    build:
+      context: .
+      dockerfile: backend/Dockerfile
+    container_name: ai_recovery_celery
+    restart: unless-stopped
+
+    # Override the default CMD (uvicorn) with the Celery worker command
+    command:
+      - celery
+      - -A
+      - backend.celery_app
+      - worker
+      - --loglevel=info
+      - --concurrency=4
+
+    env_file:
+      - .env
+
+    environment:
+      - PYTHONUNBUFFERED=1
+      - MOCK_DISPATCH=${MOCK_DISPATCH:-True}
+      # Must match the broker URL used by the backend
+      - CELERY_BROKER_URL=${REDIS_URL:-redis://redis:6379/0}
+
+    networks:
+      - recovery_net
+
+    volumes:
+      - backend_data:/app/data
+
+    # Worker depends on both Redis (for task queue) and the API (to ensure
+    # DB migrations / startup checks have completed first)
+    depends_on:
+      redis:
+        condition: service_healthy
+      backend:
+        condition: service_healthy
+
+    healthcheck:
+      # ping Celery itself — succeeds if at least one worker is responsive
+      test: [ "CMD", "celery", "-A", "backend.celery_app", "inspect", "ping", "--timeout=10" ]
+      interval: 60s
+      timeout: 15s
+      retries: 3
+      start_period: 30s
 
   # ── Frontend (Next.js) ────────────────────────────────────────────────────
   frontend:
@@ -69,6 +128,8 @@ services:
         # Routes Next.js server-side fetches through Docker's internal DNS
         # so `backend` resolves to the backend service container.
         NEXT_PUBLIC_API_URL: http://backend:8000
+        # Set to "true" to enable Seed/Reset demo buttons in the built image
+        NEXT_PUBLIC_ENABLE_DEMO_CONTROLS: ${NEXT_PUBLIC_ENABLE_DEMO_CONTROLS:-false}
     container_name: ai_recovery_frontend
     restart: unless-stopped
 
@@ -88,7 +149,7 @@ services:
         condition: service_healthy
 
     healthcheck:
-      test: ["CMD", "wget", "-qO-", "http://localhost:3000/"]
+      test: [ "CMD", "wget", "-qO-", "http://localhost:3000/" ]
       interval: 30s
       timeout: 10s
       retries: 5

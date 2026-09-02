@@ -5,6 +5,7 @@ const backendUrl =
   "http://localhost:8000";
 
 const nextConfig = {
+  output: "standalone",
   async rewrites() {
     return [
       // Proxy /api/* → FastAPI /api/*

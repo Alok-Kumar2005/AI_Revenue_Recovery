@@ -6,8 +6,13 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useEffect, useState } from "react";
-import { Activity, LayoutDashboard, Sparkles, Zap } from "lucide-react";
+import { Activity, FlaskConical, LayoutDashboard, Sparkles, Zap } from "lucide-react";
 import AICopilotDrawer from "./AICopilotDrawer";
+
+// Demo mode gate — mirrors the check in batch/page.tsx
+const IS_DEMO_MODE =
+  process.env.NEXT_PUBLIC_ENABLE_DEMO_CONTROLS === "true" ||
+  process.env.NODE_ENV === "development";
 
 type HealthStatus = "checking" | "connected" | "disconnected";
 
@@ -19,14 +24,30 @@ function useHealthStatus() {
 
     async function ping() {
       try {
-        // /health is proxied by Next.js rewrites → no CORS issue
-        const res = await fetch("/health", {
-          cache: "no-store",
-          signal: AbortSignal.timeout(4000),
-        });
-        const json = await res.json();
-        if (!cancelled) {
-          setStatus(json.status === "healthy" ? "connected" : "disconnected");
+        let res: Response | null = null;
+        try {
+          // Attempt relative path /api/health (proxied by Next.js rewrites)
+          res = await fetch("/api/health", {
+            cache: "no-store",
+            signal: AbortSignal.timeout(4000),
+          });
+        } catch {
+          // Fallback to direct backend URL if proxy is unavailable
+          const backendUrl = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
+          res = await fetch(`${backendUrl}/api/health`, {
+            cache: "no-store",
+            signal: AbortSignal.timeout(4000),
+          });
+        }
+
+        if (res && res.ok) {
+          const json = await res.json();
+          const isHealthy = json.status === "healthy" || json.status === "ok";
+          if (!cancelled) {
+            setStatus(isHealthy ? "connected" : "disconnected");
+          }
+        } else {
+          if (!cancelled) setStatus("disconnected");
         }
       } catch {
         if (!cancelled) setStatus("disconnected");
@@ -111,8 +132,21 @@ export default function Navbar() {
             })}
           </div>
 
-          {/* Right Side: Copilot button + Health status */}
+          {/* Right Side: Demo pill + Copilot button + Health status */}
           <div className="flex items-center gap-3">
+            {/* DEMO mode badge */}
+            {IS_DEMO_MODE && (
+              <span
+                title="Staging demo controls are active"
+                className="hidden sm:flex items-center gap-1.5 px-2.5 py-1 rounded-full
+                  text-[10px] font-bold tracking-widest uppercase
+                  bg-violet-500/15 border border-violet-500/30 text-violet-300"
+              >
+                <FlaskConical size={10} className="text-violet-400" />
+                Demo
+              </span>
+            )}
+
             {/* AI Copilot Trigger Button */}
             <button
               id="ai-copilot-toggle-btn"

@@ -3,9 +3,24 @@
 // src/app/batch/page.tsx — Live Batch Recovery Simulation
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { CheckCircle2, Circle, Play, RefreshCw, XCircle } from "lucide-react";
-import { fetchCases, triggerBatchRecovery } from "@/lib/api";
+import {
+  CheckCircle2,
+  Circle,
+  DatabaseZap,
+  Play,
+  RefreshCw,
+  RotateCcw,
+  XCircle,
+} from "lucide-react";
+import { fetchCases, resetTestCases, seedDemoCases, triggerBatchRecovery } from "@/lib/api";
 import type { CaseListItem } from "@/lib/types";
+import { useToast } from "@/components/Toast";
+
+// ── Environment gate ───────────────────────────────────────────────────────
+// Demo controls are visible in development OR when the explicit env flag is set.
+const IS_DEMO_MODE =
+  process.env.NEXT_PUBLIC_ENABLE_DEMO_CONTROLS === "true" ||
+  process.env.NODE_ENV === "development";
 
 // ---- Log entry --------------------------------------------------------------
 
@@ -56,6 +71,108 @@ function CounterCard({
   );
 }
 
+// ---- Demo Controls bar ──────────────────────────────────────────────────────
+
+function DemoControlsBar({
+  onSeeded,
+  onReset,
+}: {
+  onSeeded: () => void;
+  onReset: () => void;
+}) {
+  const { showToast } = useToast();
+  const [seeding, setSeeding]   = useState(false);
+  const [resetting, setResetting] = useState(false);
+
+  const handleSeed = async () => {
+    setSeeding(true);
+    try {
+      const res = await seedDemoCases(5);
+      showToast(`${res.seeded_count} Test Cases Added`, "success");
+      onSeeded();
+    } catch (e: unknown) {
+      showToast(
+        `Seed failed: ${e instanceof Error ? e.message : String(e)}`,
+        "error",
+      );
+    } finally {
+      setSeeding(false);
+    }
+  };
+
+  const handleReset = async () => {
+    setResetting(true);
+    try {
+      const res = await resetTestCases();
+      showToast(
+        `${res.reset_count} case${res.reset_count !== 1 ? "s" : ""} reset to PENDING`,
+        "success",
+      );
+      onReset();
+    } catch (e: unknown) {
+      showToast(
+        `Reset failed: ${e instanceof Error ? e.message : String(e)}`,
+        "error",
+      );
+    } finally {
+      setResetting(false);
+    }
+  };
+
+  return (
+    <div className="flex items-center gap-2 flex-wrap">
+      {/* Divider */}
+      <span className="hidden sm:block h-6 w-px bg-slate-700" />
+
+      {/* Seed button */}
+      <button
+        id="seed-demo-btn"
+        onClick={handleSeed}
+        disabled={seeding || resetting}
+        title="Seed 5 synthetic PENDING cases for demo"
+        className="flex items-center gap-1.5 px-3.5 py-2 rounded-lg
+          bg-gradient-to-r from-violet-600/80 to-purple-600/80
+          hover:from-violet-500 hover:to-purple-500
+          text-white text-xs font-semibold shadow-md shadow-violet-900/30
+          disabled:opacity-50 disabled:cursor-not-allowed transition-all"
+      >
+        {seeding ? (
+          <RefreshCw size={12} className="animate-spin" />
+        ) : (
+          <DatabaseZap size={12} />
+        )}
+        {seeding ? "Seeding…" : "Seed Demo Cases"}
+      </button>
+
+      {/* Reset button */}
+      <button
+        id="reset-cases-btn"
+        onClick={handleReset}
+        disabled={seeding || resetting}
+        title="Reset all cases back to PENDING"
+        className="flex items-center gap-1.5 px-3.5 py-2 rounded-lg
+          bg-gradient-to-r from-amber-600/80 to-orange-600/80
+          hover:from-amber-500 hover:to-orange-500
+          text-white text-xs font-semibold shadow-md shadow-amber-900/30
+          disabled:opacity-50 disabled:cursor-not-allowed transition-all"
+      >
+        {resetting ? (
+          <RefreshCw size={12} className="animate-spin" />
+        ) : (
+          <RotateCcw size={12} />
+        )}
+        {resetting ? "Resetting…" : "Reset All to Pending"}
+      </button>
+
+      {/* Staging badge */}
+      <span className="px-2 py-0.5 rounded-full text-[10px] font-bold tracking-wider
+        bg-violet-500/15 border border-violet-500/30 text-violet-300 uppercase">
+        Staging
+      </span>
+    </div>
+  );
+}
+
 // ---- Main Page --------------------------------------------------------------
 
 type BatchPhase = "idle" | "dispatching" | "polling" | "done";
@@ -68,6 +185,7 @@ export default function BatchPage() {
   const [recovered, setRecovered]   = useState(0);
   const [failed, setFailed]         = useState(0);
   const [processed, setProcessed]   = useState(0);
+  const [refreshKey, setRefreshKey] = useState(0); // bump to re-fetch case list
 
   const logRef    = useRef<HTMLDivElement>(null);
   const pollRef   = useRef<NodeJS.Timeout | null>(null);
@@ -202,6 +320,19 @@ export default function BatchPage() {
   const total = dispatchedIds.length;
   const progressPct = total > 0 ? Math.round((processed / total) * 100) : 0;
 
+  // Handlers for demo controls — trigger UI refresh
+  const handleSeeded  = () => setRefreshKey((k) => k + 1);
+  const handleReset   = () => {
+    setLogs([]);
+    setDispatched([]);
+    setSnapshots({});
+    setRecovered(0);
+    setFailed(0);
+    setProcessed(0);
+    setPhase("idle");
+    setRefreshKey((k) => k + 1);
+  };
+
   return (
     <div className="mx-auto max-w-5xl px-5 py-8 space-y-6 animate-fade-in">
       {/* Header */}
@@ -214,8 +345,9 @@ export default function BatchPage() {
         </p>
       </div>
 
-      {/* Start button */}
-      <div className="card flex flex-col sm:flex-row items-start sm:items-center gap-4">
+      {/* Control bar: Start + Demo Controls (env-gated) */}
+      <div className="card flex flex-col sm:flex-row items-start sm:items-center gap-4 flex-wrap">
+        {/* Start button */}
         <button
           id="batch-start-btn"
           onClick={handleStart}
@@ -241,12 +373,24 @@ export default function BatchPage() {
           </span>
         )}
 
-        {phase === "idle" && logs.length === 0 && (
+        {phase === "idle" && logs.length === 0 && !IS_DEMO_MODE && (
           <p className="text-xs text-slate-500">
             Will fetch all PENDING cases and dispatch async Celery tasks.
           </p>
         )}
+
+        {/* Demo Controls — only rendered in dev / staging */}
+        {IS_DEMO_MODE && (
+          <DemoControlsBar onSeeded={handleSeeded} onReset={handleReset} />
+        )}
       </div>
+
+      {/* Hidden refresh signal for external consumers (e.g. refreshKey logs) */}
+      {refreshKey > 0 && logs.length === 0 && (
+        <p className="text-xs text-slate-600 -mt-3">
+          Case list refreshed ({refreshKey} update{refreshKey !== 1 ? "s" : ""})
+        </p>
+      )}
 
       {/* Counters */}
       {total > 0 && (

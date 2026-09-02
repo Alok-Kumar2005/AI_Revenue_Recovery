@@ -32,20 +32,31 @@ def check_compliance(case: Dict[str, Any]) -> Dict[str, Any]:
         }
 
     # Rule 3: DND Hours (22:00 - 08:00 IST, UTC+5:30)
-    ist_tz = timezone(timedelta(hours=5, minutes=30))
-    # Allow optional override in case dictionary for deterministic testing
-    if "current_time_ist" in case and isinstance(case["current_time_ist"], datetime):
-        now_ist = case["current_time_ist"]
+    # Check ALLOW_NIGHT_OUTREACH env toggle (defaults to True for local testing)
+    import os
+    from backend.config import settings
+    
+    allow_night_env = os.getenv("ALLOW_NIGHT_OUTREACH")
+    if allow_night_env is not None:
+        allow_night = allow_night_env.lower() in ("true", "1", "yes")
     else:
-        now_ist = datetime.now(ist_tz)
+        allow_night = getattr(settings, "ALLOW_NIGHT_OUTREACH", True)
 
-    current_hour = now_ist.hour
-    if current_hour >= 22 or current_hour < 8:
-        return {
-            "is_compliant": False,
-            "forced_action": "DELAY",
-            "reason": "NIGHT_DND_WINDOW",
-        }
+    if not allow_night:
+        ist_tz = timezone(timedelta(hours=5, minutes=30))
+        # Allow optional override in case dictionary for deterministic testing
+        if "current_time_ist" in case and isinstance(case["current_time_ist"], datetime):
+            now_ist = case["current_time_ist"]
+        else:
+            now_ist = datetime.now(ist_tz)
+
+        current_hour = now_ist.hour
+        if current_hour >= 22 or current_hour < 8:
+            return {
+                "is_compliant": False,
+                "forced_action": "DELAY",
+                "reason": "NIGHT_DND_WINDOW",
+            }
 
     return {
         "is_compliant": True,

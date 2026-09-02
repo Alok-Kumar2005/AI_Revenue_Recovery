@@ -10,6 +10,8 @@ Broker strategy:
     without a running Redis daemon.
 """
 
+import os
+import ssl
 from celery import Celery
 
 from backend.config import settings
@@ -31,15 +33,21 @@ def _normalize_redis_url(url: str) -> str:
 
 # ── Broker selection ──────────────────────────────────────────────────────────
 
-_raw_redis_url = settings.REDIS_URL.strip()
+_raw_redis_url = (
+    os.getenv("CELERY_BROKER_URL")
+    or os.getenv("REDIS_URL")
+    or settings.REDIS_URL
+    or ""
+).strip()
+
 _use_redis = bool(
     _raw_redis_url and _raw_redis_url.startswith(("redis://", "rediss://"))
 )
 _redis_url = _normalize_redis_url(_raw_redis_url) if _use_redis else ""
 
 if _use_redis:
-    _is_tls = _redis_url.startswith("rediss://")
-    _ssl_cfg = {"ssl_cert_reqs": None} if _is_tls else {}   # ssl.CERT_NONE == None
+    is_rediss = _redis_url.startswith("rediss://")
+    ssl_options = {"ssl_cert_reqs": ssl.CERT_NONE} if is_rediss else None
 
     celery_app = Celery(
         "ai_revenue_recovery",
@@ -55,9 +63,9 @@ if _use_redis:
         enable_utc=True,
         task_track_started=True,
         broker_connection_retry_on_startup=True,
-        # ── TLS settings required for rediss:// (Upstash / managed Redis) ──
-        broker_use_ssl=_ssl_cfg if _is_tls else None,
-        redis_backend_use_ssl=_ssl_cfg if _is_tls else None,
+        # ── TLS settings required for rediss:// (Upstash / Cloud Redis) ──
+        broker_use_ssl=ssl_options,
+        redis_backend_use_ssl=ssl_options,
     )
 else:
     # ── Eager (in-process) fallback — no Redis required ──────────────────────

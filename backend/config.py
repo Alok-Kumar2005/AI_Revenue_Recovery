@@ -22,11 +22,30 @@ class Settings(BaseSettings):
     RZP_SECRET: str = "rzp_test_secret_mock"
     RZP_WEBHOOK_SECRET: str = "rzp_webhook_secret_mock"
 
+    RAZORPAY_KEY_ID: str = ""
+    RAZORPAY_KEY_SECRET: str = ""
+    RAZORPAY_WEBHOOK_SECRET: str = ""
+
+    @property
+    def razorpay_key_id(self) -> str:
+        return self.RAZORPAY_KEY_ID or self.RZP_KEY
+
+    @property
+    def razorpay_key_secret(self) -> str:
+        return self.RAZORPAY_KEY_SECRET or self.RZP_SECRET
+
+    @property
+    def razorpay_webhook_secret(self) -> str:
+        return self.RAZORPAY_WEBHOOK_SECRET or self.RZP_WEBHOOK_SECRET
+
     GEMINI_API_KEY: str = ""
 
     # Optional Redis URL for Celery broker.
     # Leave empty to run Celery in task_always_eager mode (no Redis required).
     REDIS_URL: str = ""
+
+    # Compliance Settings
+    ALLOW_NIGHT_OUTREACH: bool = True
 
     # Base URL for public API endpoints and generated document links
     BASE_URL: str = "http://localhost:8000"

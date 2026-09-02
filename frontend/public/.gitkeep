@@ -1,0 +1,2 @@
+# This file ensures the public/ directory is tracked by Git and copied by Docker.
+# Next.js serves static assets from this folder (favicon, images, robots.txt, etc.)

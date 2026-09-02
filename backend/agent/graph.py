@@ -1,13 +1,17 @@
+from __future__ import annotations
+
 import json
 import logging
 import os
-from typing import Dict, Any, TypedDict, Optional
-from langgraph.graph import StateGraph, END
+from typing import Dict, Any, TypedDict, Optional, TYPE_CHECKING
 
 from backend.config import settings
 from backend.agent.compliance import check_compliance
 from backend.agent.llm import get_gemini_llm
 from backend.agent.prompts import get_recovery_prompt
+
+if TYPE_CHECKING:
+    from langgraph.graph import StateGraph
 
 logger = logging.getLogger("agent.graph")
 
@@ -162,10 +166,13 @@ def finalize_decision_node(state: AgentState) -> AgentState:
     return new_state  # type: ignore
 
 
-def build_recovery_graph() -> StateGraph:
+def build_recovery_graph() -> Any:
     """
     Builds the LangGraph StateGraph workflow.
+    Lazily imports langgraph.graph only when compiling graph.
     """
+    from langgraph.graph import StateGraph, END
+
     workflow = StateGraph(AgentState)
 
     # Add Nodes

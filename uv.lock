@@ -61,7 +61,7 @@ requires-dist = [
     { name = "pydantic-settings", specifier = ">=2.10.1" },
     { name = "python-dotenv", specifier = ">=1.2.3" },
     { name = "razorpay", specifier = ">=2.0.1" },
-    { name = "redis", specifier = ">=8.1.0" },
+    { name = "redis", specifier = ">=5.0.0" },
     { name = "reportlab", specifier = ">=4.0.0" },
     { name = "resend", specifier = ">=2.0.0" },
     { name = "scikit-learn", specifier = ">=1.9.0" },

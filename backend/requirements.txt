@@ -1,0 +1,37 @@
+# Core API & ASGI Framework
+fastapi
+uvicorn[standard]
+pydantic
+pydantic-settings
+
+# Database & Migrations
+sqlalchemy
+psycopg2-binary
+asyncpg
+alembic
+
+# AI Agent & Orchestration (Gemini + LangGraph)
+langchain-core
+langchain-google-genai
+langgraph
+
+# Task Queue & Broker
+celery
+redis
+
+# Payment Ingestion
+razorpay
+
+# Utilities & Networking
+python-dotenv
+httpx
+
+
+# PDF Invoice & Demand Letter Generation
+reportlab>=4.0.0
+
+
+joblib
+numpy
+pandas
+scikit-learn

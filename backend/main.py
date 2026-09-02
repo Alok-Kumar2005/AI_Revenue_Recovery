@@ -22,7 +22,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from backend.config import settings
 from backend.database import ping_db
 from backend.logger import logging
-from backend.routers import chat, dashboard, pdf, webhook, webhooks
+from backend.routers import admin, chat, dashboard, pdf, webhook, webhooks
 
 logger = logging.getLogger(__name__)
 
@@ -64,7 +64,7 @@ async def root():
 async def health():
     db_ok = ping_db()
     return {
-        "status": "ok" if db_ok else "degraded",
+        "status": "healthy" if db_ok else "degraded",
         "database": "connected" if db_ok else "unreachable",
     }
 
@@ -74,3 +74,4 @@ app.include_router(dashboard.router, prefix="/api",     tags=["dashboard"])
 app.include_router(chat.router,      prefix="/api",     tags=["Chat"])
 app.include_router(webhooks.router,  prefix="/api",     tags=["Webhooks"])
 app.include_router(pdf.router,       prefix="/api",     tags=["pdf"])
+app.include_router(admin.router,     prefix="/api",     tags=["Admin"])

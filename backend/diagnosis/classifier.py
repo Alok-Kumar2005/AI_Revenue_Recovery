@@ -1,22 +1,22 @@
 """
 Main Diagnosis Entry Point (Rules -> ML Model fallback).
 """
+from __future__ import annotations
+
 import os
 from datetime import datetime
 from typing import Dict, Any, Optional
-import joblib
-import numpy as np
-import pandas as pd
 
 from backend.diagnosis.rules import apply_rules
-from backend.diagnosis.train import train_model
 
 _MODEL_PIPELINE = None
+
 
 def get_model_path() -> str:
     """Returns absolute path to trained classifier artifact."""
     base_dir = os.path.dirname(os.path.abspath(__file__))
     return os.path.join(base_dir, "models", "classifier.joblib")
+
 
 def load_classifier():
     """
@@ -27,12 +27,20 @@ def load_classifier():
     if _MODEL_PIPELINE is not None:
         return _MODEL_PIPELINE
 
+    # Lazy-import heavy ML modules only when model loading is required
+    import joblib
+    from backend.diagnosis.train import train_model
+
     model_path = get_model_path()
     if not os.path.exists(model_path):
         print(f"Model file not found at {model_path}. Training new model...")
         _MODEL_PIPELINE = train_model(save_path=model_path)
     else:
-        _MODEL_PIPELINE = joblib.load(model_path)
+        try:
+            _MODEL_PIPELINE = joblib.load(model_path)
+        except Exception as exc:
+            print(f"Failed to load classifier model from {model_path} ({exc}). Retraining model with current scikit-learn version...")
+            _MODEL_PIPELINE = train_model(save_path=model_path)
     
     return _MODEL_PIPELINE
 
@@ -57,12 +65,15 @@ def diagnose_failure(
     if context is None:
         context = {}
 
-    # 1. Rule-based evaluation
+    # 1. Rule-based evaluation (zero external ML library dependencies)
     rule_result = apply_rules(error_code, error_description)
     if rule_result is not None:
         return rule_result
 
-    # 2. ML Classifier Fallback
+    # 2. ML Classifier Fallback (lazy-loads pandas, numpy, and model pipeline on demand)
+    import numpy as np
+    import pandas as pd
+
     pipeline = load_classifier()
 
     # Extract features from context with safe defaults

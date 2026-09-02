@@ -1,4 +1,9 @@
-from langchain_core.prompts import ChatPromptTemplate
+from __future__ import annotations
+
+from typing import Any, TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from langchain_core.prompts import ChatPromptTemplate
 
 SYSTEM_PROMPT = """You are an empathetic, high-converting revenue recovery strategist for Indian consumers.
 Your goal is to analyze failed transaction details (UPI, Netbanking, Cards) and determine the optimal intervention channel and draft personalized, polite outreach content to help the customer complete their payment.
@@ -35,10 +40,13 @@ Retry Count: {retry_count}
 """
 
 
-def get_recovery_prompt() -> ChatPromptTemplate:
+def get_recovery_prompt() -> Any:
     """
     Returns the ChatPromptTemplate for Gemini recovery planning.
+    Lazily imports langchain_core.prompts only when invoked.
     """
+    from langchain_core.prompts import ChatPromptTemplate
+
     return ChatPromptTemplate.from_messages(
         [
             ("system", SYSTEM_PROMPT),

@@ -22,8 +22,14 @@ env/
 uv.lock
 pyproject.toml
 
-# Test files
+# Test files & caches
 backend/test_*.py
+.pytest_cache/
+.coverage
+.coverage.*
+htmlcov/
+.mypy_cache/
+.ruff_cache/
 
 # IDE / OS
 .git/

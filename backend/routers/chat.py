@@ -31,7 +31,6 @@ from sqlalchemy.orm import Session, joinedload
 from backend.config import settings
 from backend.database import get_db
 from backend.models import AuditLog, Customer, Intervention, RecoveryMetric, RevenueCase
-from backend.agent.llm import get_gemini_llm
 
 logger = logging.getLogger(__name__)
 

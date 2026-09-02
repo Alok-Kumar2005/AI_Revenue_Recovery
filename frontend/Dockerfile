@@ -1,5 +1,5 @@
 # ─── Frontend Dockerfile ─────────────────────────────────────────────────────
-# AI Revenue Recovery — Next.js 14 container (multi-stage build)
+# AI Revenue Recovery — Next.js 14 container (3-stage Alpine build)
 #
 # Build:
 #   docker build \
@@ -17,7 +17,7 @@ RUN apk add --no-cache libc6-compat
 
 WORKDIR /app
 
-# Copy package manifests only (better layer caching)
+# Copy package manifests only for optimal layer caching
 COPY package.json package-lock.json* ./
 
 RUN npm ci --prefer-offline
@@ -28,17 +28,20 @@ FROM node:18-alpine AS builder
 
 WORKDIR /app
 
-# Accept the API URL as a build arg (default: backend service name in Compose)
+# Accept API URL and Demo controls as build arguments
 ARG NEXT_PUBLIC_API_URL=http://backend:8000
 ENV NEXT_PUBLIC_API_URL=$NEXT_PUBLIC_API_URL
 
-# Re-use the installed node_modules from the deps stage
+ARG NEXT_PUBLIC_ENABLE_DEMO_CONTROLS=true
+ENV NEXT_PUBLIC_ENABLE_DEMO_CONTROLS=$NEXT_PUBLIC_ENABLE_DEMO_CONTROLS
+
+# Copy dependencies from deps stage
 COPY --from=deps /app/node_modules ./node_modules
 
-# Copy the rest of the source code
+# Copy application source code
 COPY . .
 
-# Build the optimised Next.js production bundle
+# Build standalone Next.js bundle
 RUN npm run build
 
 
@@ -47,30 +50,28 @@ FROM node:18-alpine AS runner
 
 WORKDIR /app
 
-# Reduce image attack surface: production-only runtime
 ENV NODE_ENV=production \
     NEXT_TELEMETRY_DISABLED=1 \
-    PORT=3000
+    PORT=3000 \
+    HOSTNAME="0.0.0.0"
 
 # Create a non-root user for security
 RUN addgroup --system --gid 1001 nodejs && \
     adduser  --system --uid 1001 nextjs
 
-# Copy only the artefacts needed to run Next.js in standalone mode
-# (falls back to standard .next if standalone not enabled in next.config.js)
-COPY --from=builder /app/public          ./public
-COPY --from=builder /app/.next           ./.next
-COPY --from=builder /app/node_modules    ./node_modules
-COPY --from=builder /app/package.json    ./package.json
-COPY --from=builder /app/next.config.js  ./next.config.js
+# Copy static public assets
+COPY --from=builder /app/public ./public
 
-RUN chown -R nextjs:nodejs /app
+# Copy only the standalone server and traced output (brings image size under 150 MB)
+COPY --from=builder --chown=nextjs:nodejs /app/.next/standalone ./
+COPY --from=builder --chown=nextjs:nodejs /app/.next/static ./.next/static
 
 USER nextjs
 
 EXPOSE 3000
 
-HEALTHCHECK --interval=30s --timeout=10s --start-period=30s --retries=3 \
+HEALTHCHECK --interval=30s --timeout=10s --start-period=20s --retries=3 \
     CMD wget -qO- http://localhost:3000/ || exit 1
 
-CMD ["npm", "start"]
+# Launch the lightweight standalone Node server directly without npm overhead
+CMD ["node", "server.js"]
